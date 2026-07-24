@@ -18,6 +18,43 @@ from ..mqtt import topics
 
 log = logging.getLogger("gtd.uplink")
 
+# Último `estado` visto por MAC, para loguear solo las TRANSICIONES: el status es
+# retained y se repite en cada reconexión, no queremos una línea por repetición.
+# Acotado por el tamaño de la flota; se pierde al reiniciar (y entonces el primer
+# status de cada panel se loguea de nuevo, que es justo lo que se quiere al arrancar).
+_last_estado: dict[str, str] = {}
+
+# estado → (nivel, marca). offline en WARNING para que salte en el journal.
+# Marcas ASCII a propósito: el log puede terminar en una consola cp1252 (Windows),
+# donde un carácter no-latin1 se escapa o revienta al emitir.
+_ESTADO_LOG = {
+    "online": (logging.INFO, "[+] panel ONLINE"),
+    "durmiendo": (logging.INFO, "[~] panel DURMIENDO"),
+    "offline": (logging.WARNING, "[-] panel OFFLINE"),
+}
+
+
+def _log_transicion(device_id: str, model) -> None:
+    """Loguea el cambio de estado de un panel. Silencioso si no cambió."""
+    estado = model.estado
+    if _last_estado.get(device_id) == estado:
+        return
+    anterior = _last_estado.get(device_id, "?")
+    _last_estado[device_id] = estado
+
+    nivel, marca = _ESTADO_LOG.get(estado, (logging.INFO, f"? panel {estado}"))
+    detalle = ""
+    if estado == "online" and model.modo:
+        detalle = f" modo={model.modo}"
+    elif estado == "durmiendo" and model.despierta:
+        detalle = f" despierta={model.despierta}"
+    elif estado == "offline" and model.causa:
+        detalle = f" causa={model.causa}"
+    if model.fw:
+        detalle += f" fw={model.fw}"
+
+    log.log(nivel, "%s mac=%s%s (antes=%s)", marca, device_id, detalle, anterior)
+
 
 async def handle(raw_topic: str, raw_payload: bytes, repo: Repo) -> None:
     parsed = topics.parse(raw_topic)
@@ -34,6 +71,7 @@ async def handle(raw_topic: str, raw_payload: bytes, repo: Repo) -> None:
         return
 
     if channel is Channel.STATUS:
+        _log_transicion(device_id, model)
         await repo.upsert_panel_state(
             device_id, online=model.online, modo_energia=model.modo,
             last_seen=model.ts,

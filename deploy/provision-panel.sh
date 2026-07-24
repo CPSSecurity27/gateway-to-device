@@ -31,43 +31,58 @@ die()  { echo -e "\n\033[31m✗ $*\033[0m" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "Correr con sudo."
 [ $# -ge 1 ] || die "Uso: sudo -E bash $0 <MAC>   (ej: AA:BB:CC:DD:EE:FF)"
 
-RAW_MAC="$1"
-# El tópico usa el device_id tal cual lo arma el firmware. Si resulta que no es
-# la MAC con dos puntos, se pasa como segundo argumento.
-TOPIC_ID="${2:-$RAW_MAC}"
+RAW_MAC="$1"; shift
 
 # Normalización: 12 dígitos hex en mayúsculas, sin separadores.
 HEX_MAC="$(echo "$RAW_MAC" | tr -d ':-' | tr '[:lower:]' '[:upper:]')"
 [[ "$HEX_MAC" =~ ^[0-9A-F]{12}$ ]] || die "MAC inválida: '$RAW_MAC' (esperaba 6 bytes hex)."
+USERNAME="AV-${HEX_MAC}"
 
-if [ -z "${SALT_MQTT:-}" ]; then
-  echo -n "SALT_MQTT (no se muestra al tipear): "
-  read -rs SALT_MQTT
-  echo
+# El device_id del tópico: el contrato dice `av/<id>` pero no fija el formato, y
+# el firmware imprime la identidad de tres maneras distintas. Por defecto se
+# habilitan las tres formas plausibles de ESTA MAC — sigue siendo estricto (un
+# panel no puede tocar los tópicos de otro) y evita que el test falle por un
+# detalle de formato. Se pueden pasar ids explícitos como argumentos extra.
+if [ $# -gt 0 ]; then
+  TOPIC_IDS=("$@")
+else
+  MAC_COLON="$(echo "$HEX_MAC" | sed 's/../&:/g; s/:$//')"
+  TOPIC_IDS=("$HEX_MAC" "$MAC_COLON" "$USERNAME")
 fi
-[ -n "$SALT_MQTT" ] || die "SALT_MQTT vacío."
 
-# ── Cálculo del contrato ────────────────────────────────────────────
-# En Python y no en openssl: la clave y el mensaje son bytes crudos y no quiero
-# que el shell interprete nada del salt.
-read -r USERNAME PASSWORD <<EOF
-$(SALT="$SALT_MQTT" HEXMAC="$HEX_MAC" python3 - <<'PYEOF'
+# La password: normalmente la calcula el contrato (HMAC). Pero un build en MODO
+# LABORATORIO usa una fija — en ese caso se pasa por PANEL_PASSWORD y no se pide
+# el salt, porque no interviene.
+if [ -n "${PANEL_PASSWORD:-}" ]; then
+  PASSWORD="$PANEL_PASSWORD"
+  MODO="explícita (build de laboratorio)"
+else
+  if [ -z "${SALT_MQTT:-}" ]; then
+    echo -n "SALT_MQTT (no se muestra al tipear): "
+    read -rs SALT_MQTT
+    echo
+  fi
+  [ -n "$SALT_MQTT" ] || die "SALT_MQTT vacío (o exportar PANEL_PASSWORD si el build es LAB)."
+
+  # En Python y no en openssl: la clave y el mensaje son bytes crudos y no quiero
+  # que el shell interprete nada del salt.
+  PASSWORD="$(SALT="$SALT_MQTT" HEXMAC="$HEX_MAC" python3 - <<'PYEOF'
 import hashlib, hmac, os
 salt = os.environ["SALT"].encode()          # sin el NUL final (strlen en C)
 mac  = bytes.fromhex(os.environ["HEXMAC"])  # los 6 bytes crudos
 h    = hmac.new(salt, mac, hashlib.sha256).digest()
-print(f"AV-{os.environ['HEXMAC']}", "SCPS-" + h[:12].hex().upper())
+print("SCPS-" + h[:12].hex().upper())
 PYEOF
-)
-EOF
-
-[ -n "$USERNAME" ] && [ -n "$PASSWORD" ] || die "Falló el cálculo del HMAC."
+)"
+  MODO="HMAC-SHA256 del contrato"
+fi
+[ -n "$PASSWORD" ] || die "Password vacía."
 
 log "Panel a registrar"
 echo "  MAC       : $HEX_MAC"
 echo "  usuario   : $USERNAME"
-echo "  tópicos   : av/${TOPIC_ID}/{status,tele,up,cmd,cfg}"
-echo "  password  : ${PASSWORD:0:11}…  (12 bytes / 96 bits — completa más abajo)"
+echo "  password  : $MODO"
+echo "  tópicos   : ${TOPIC_IDS[*]}"
 
 # ── Alta en el broker ───────────────────────────────────────────────
 log "Credencial"
@@ -80,19 +95,23 @@ log "ACL"
 if grep -q "^user ${USERNAME}$" "$ACL_FILE"; then
   ok "ya tenía reglas (sin cambios)"
 else
-  cat >> "$ACL_FILE" <<EOF
-
-# Panel ${HEX_MAC} — alta $(date '+%Y-%m-%d') por deploy/provision-panel.sh.
-# Sube su estado, baja sus órdenes. Solo SUS tópicos: un panel no puede leer ni
-# escribir los de otro.
-user ${USERNAME}
-topic write av/${TOPIC_ID}/status
-topic write av/${TOPIC_ID}/tele
-topic write av/${TOPIC_ID}/up
-topic read  av/${TOPIC_ID}/cmd
-topic read  av/${TOPIC_ID}/cfg
-EOF
-  ok "reglas agregadas"
+  {
+    echo
+    echo "# Panel ${HEX_MAC} — alta $(date '+%Y-%m-%d') por deploy/provision-panel.sh."
+    echo "# Sube su estado, baja sus órdenes. Solo SUS tópicos: un panel no puede leer"
+    echo "# ni escribir los de otro."
+    echo "user ${USERNAME}"
+    for id in "${TOPIC_IDS[@]}"; do
+      echo "topic write av/${id}/status"
+      echo "topic write av/${id}/tele"
+      echo "topic write av/${id}/up"
+      echo "topic read  av/${id}/cmd"
+      echo "topic read  av/${id}/cfg"
+    done
+    echo "# Broadcast a la flota (S→D)."
+    echo "topic read av/all/cmd"
+  } >> "$ACL_FILE"
+  ok "reglas agregadas para ${#TOPIC_IDS[@]} formato(s) de id"
 fi
 
 log "Recargando mosquitto"
@@ -103,25 +122,27 @@ ok "activo"
 
 # ── Verificación: la credencial entra de verdad ─────────────────────
 log "Probando la credencial contra 8883"
+PROBE_ID="${TOPIC_IDS[0]}"
 if timeout 10 mosquitto_pub -h cpssecurity.com.ar -p 8883 \
      -u "$USERNAME" -P "$PASSWORD" \
-     -t "av/${TOPIC_ID}/status" \
+     -t "av/${PROBE_ID}/status" \
      -m '{"v":1,"estado":"online","modo":"PROVISION_TEST","ts":0}' 2>/dev/null; then
   ok "el panel puede autenticar y publicar su status"
   sleep 2
-  if journalctl -u gateway-to-device --no-pager -n 10 -o cat | grep -q "$TOPIC_ID"; then
+  if journalctl -u gateway-to-device --no-pager -n 10 -o cat | grep -q "$PROBE_ID"; then
     ok "y el GtD lo recibió — camino completo verificado"
   else
-    warn "el GtD NO lo vio: revisar que el device_id del tópico sea '$TOPIC_ID'"
+    warn "el GtD no lo vio (raro: el id '$PROBE_ID' está en la ACL)"
   fi
 else
   die "la credencial no entra. Revisar: journalctl -u mosquitto -n 30"
 fi
 
-log "LISTO — password completa para verificar contra el firmware"
-echo
-echo "    $PASSWORD"
-echo
-echo "  Si el panel calcula EXACTAMENTE esta password, los dos lados coinciden."
-echo "  Si no, el SALT_MQTT del build no es el que acabás de ingresar."
-echo
+log "LISTO — encender la placa y mirar"
+cat <<EOF
+
+    journalctl -u gateway-to-device -f | grep --line-buffered -E 'panel |evento|descartado'
+
+  El panel debe autenticar como ${USERNAME}. Si el broker lo rechaza, la password
+  del build no es la que se cargó acá.
+EOF

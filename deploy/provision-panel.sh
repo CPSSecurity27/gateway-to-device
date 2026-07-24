@@ -92,27 +92,13 @@ chown root:mosquitto "$PASSWD_FILE"; chmod 0640 "$PASSWD_FILE"
 ok "usuario $USERNAME cargado"
 
 log "ACL"
-if grep -q "^user ${USERNAME}$" "$ACL_FILE"; then
-  ok "ya tenía reglas (sin cambios)"
-else
-  {
-    echo
-    echo "# Panel ${HEX_MAC} — alta $(date '+%Y-%m-%d') por deploy/provision-panel.sh."
-    echo "# Sube su estado, baja sus órdenes. Solo SUS tópicos: un panel no puede leer"
-    echo "# ni escribir los de otro."
-    echo "user ${USERNAME}"
-    for id in "${TOPIC_IDS[@]}"; do
-      echo "topic write av/${id}/status"
-      echo "topic write av/${id}/tele"
-      echo "topic write av/${id}/up"
-      echo "topic read  av/${id}/cmd"
-      echo "topic read  av/${id}/cfg"
-    done
-    echo "# Broadcast a la flota (S→D)."
-    echo "topic read av/all/cmd"
-  } >> "$ACL_FILE"
-  ok "reglas agregadas para ${#TOPIC_IDS[@]} formato(s) de id"
-fi
+# No se toca: `deploy/gtd.acl` tiene una regla `pattern av/%u/…` que cubre a toda
+# la flota. El usuario ES el <id> del tópico, así que el panel queda encerrado en
+# los suyos automáticamente. Un archivo que no crece con la flota es un archivo
+# que no se desincroniza.
+grep -q "pattern write av/%u/status" "$ACL_FILE" \
+  && ok "cubierto por la regla de flota (nada que agregar)" \
+  || die "la ACL no tiene las reglas pattern. Correr antes deploy/apply-acl.sh."
 
 log "Recargando mosquitto"
 systemctl reload mosquitto 2>/dev/null || systemctl restart mosquitto

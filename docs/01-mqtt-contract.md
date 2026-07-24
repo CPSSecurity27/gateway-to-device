@@ -50,6 +50,16 @@ SUBSCRIBE  av/+/up        → stream de eventos; el subtipo va en el campo "t"
 
 Raíz `av` (`MQTT_TOPIC_ROOT`). Identidad `AV-<MAC>` (ver [02](02-provisioning-auth.md)).
 
+**El `<id>` del tópico es el string completo `AV-<MAC-hex-mayúsculas>`** — con el
+prefijo, sin dos puntos: `av/AV-240AC4000110/status`. Verificado contra una placa
+real el 2026-07-24; antes esto no estaba escrito y era ambiguo.
+
+> **No cambiar sin leer esto.** El `<id>` es **idéntico** al usuario MQTT, y de eso
+> depende que la ACL del broker sea una regla `pattern av/%u/…` para toda la flota
+> en vez de cinco líneas por panel. Si el id y el usuario divergen, la ACL pasa a
+> crecer con la flota y hay que mantenerla sincronizada a mano.
+> Ver `deploy/gtd.acl`.
+
 | Tópico | Dir | Retained | QoS | Contenido |
 |---|---|---|---|---|
 | `av/<id>/status` | D→S | sí | 1 | presencia + LWT + aviso de sueño |

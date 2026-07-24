@@ -6,8 +6,9 @@
 # OJO: no hay reglas para clientes anónimos acá a propósito. En 8883
 # `allow_anonymous false` los rechaza antes de llegar a la ACL.
 
-# El GtD: lee todo lo que sube la flota, escribe solo los canales de bajada.
-# Este es el principio del diseño: nadie más publica en av/+/cmd ni av/+/cfg.
+# ── El GtD ──────────────────────────────────────────────────────────
+# Lee todo lo que sube la flota, escribe solo los canales de bajada. Este es el
+# principio del diseño: nadie más publica en av/+/cmd ni av/+/cfg.
 user gateway
 topic read av/+/status
 topic read av/+/tele
@@ -15,8 +16,23 @@ topic read av/+/up
 topic write av/+/cmd
 topic write av/+/cfg
 
-# PENDIENTE — paneles: hoy siguen en 1883 anónimo. Cuando el firmware provisione
-# credenciales (usuario AV-<MAC>, password HMAC-SHA256 — ver docs/02), acá va una
-# regla por panel o un `pattern`. No se puede usar `pattern ... %u` directamente:
-# el usuario es "AV-<MAC-en-hex>" y el tópico es "av/<MAC>", no coinciden byte a
-# byte. Definir eso al migrar los paneles a 8883.
+# ── Los paneles — TODA la flota, sin una línea por dispositivo ───────
+# `%u` sustituye el usuario del cliente, que es exactamente el <id> del tópico
+# (usuario AV-<MAC> = av/AV-<MAC>/…). Cada panel queda encerrado en SUS tópicos:
+# av/AV-1/... no matchea para el usuario AV-2. Verificado contra una placa real.
+#
+# Que el id del tópico y el usuario sean el mismo string es lo que hace posible
+# esto; si divergen, hacen falta 5 reglas por panel. Ver docs/01-mqtt-contract.md.
+#
+# Dar de alta un panel = cargar su password. Este archivo NO se toca.
+#
+# (Las reglas `pattern` aplican a todos los usuarios, incluido `gateway`; para él
+#  son inocuas: av/gateway/* no existe.)
+pattern write av/%u/status
+pattern write av/%u/tele
+pattern write av/%u/up
+pattern read av/%u/cmd
+pattern read av/%u/cfg
+
+# Broadcast a la flota (S→D) — lo publica el GtD por su regla av/+/cmd.
+pattern read av/all/cmd

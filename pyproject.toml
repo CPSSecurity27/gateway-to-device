@@ -1,0 +1,25 @@
+[project]
+name = "gateway-to-device"
+version = "0.1.0"
+description = "Gateway to Device (GtD): puente MQTT <-> Postgres entre los paneles ESP32 (AlarmaV6) y el backend de CPS Security."
+requires-python = ">=3.11"
+dependencies = [
+    "aiomqtt>=2.0",
+    "asyncpg>=0.29",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -46,7 +46,10 @@ espera() {
   return 1
 }
 
-marca() { SINCE="$(date '+%Y-%m-%d %H:%M:%S')"; sleep 1; }
+# `journalctl --since` tiene granularidad de UN SEGUNDO y es inclusivo, así que
+# una marca tomada en el mismo segundo que la línea anterior la vuelve a contar.
+# Se arranca la ventana un segundo en el futuro y se espera a que pase.
+marca() { SINCE="$(date -d '+1 second' '+%Y-%m-%d %H:%M:%S')"; sleep 2; }
 
 # caso <nombre> <canal> <payload> <patrón esperado>
 caso() {
@@ -74,6 +77,7 @@ echo "════════════════════════�
 
 systemctl is-active --quiet "$UNIT" || { echo "El servicio $UNIT no está activo."; exit 1; }
 REINICIOS_ANTES="$(systemctl show "$UNIT" -p NRestarts --value)"
+INICIO="$(date '+%Y-%m-%d %H:%M:%S')"   # ventana de toda la corrida
 
 # ── Presencia ───────────────────────────────────────────────────────
 titulo "Presencia (los 3 estados del contrato)"
@@ -82,12 +86,13 @@ caso "status online" status \
   "panel ONLINE"
 
 # El status es retained: el broker lo reenvía en cada reconexión. Una sola línea.
-marca
+# Se cuenta sobre TODA la corrida en vez de una ventana corta: así la medición no
+# depende de la granularidad de un segundo del journal.
 pub status '{"v":1,"estado":"online","modo":"ACTIVE_240","fw":"e2e","ts":'"$((RUN+1))"'}'
 sleep 3
-N="$(journalctl -u "$UNIT" --since "$SINCE" --no-pager -o cat | grep -c "panel ONLINE")"
-[ "$N" -eq 0 ] && c_ok "status repetido no repite el log (dedup)" \
-                || c_bad "status repetido logueó $N veces (debía ser 0)"
+N="$(journalctl -u "$UNIT" --since "$INICIO" --no-pager -o cat | grep -c "panel ONLINE")"
+[ "$N" -eq 1 ] && c_ok "status repetido no repite el log (1 sola línea para 2 mensajes)" \
+                || c_bad "se esperaba 1 línea 'panel ONLINE' en la corrida, hubo $N"
 
 caso "status durmiendo" status \
   '{"v":1,"estado":"durmiendo","despierta":'"$((RUN+3600))"',"ts":'"$RUN"'}' \

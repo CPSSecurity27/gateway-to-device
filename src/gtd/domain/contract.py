@@ -41,6 +41,7 @@ class UpType(str, Enum):
     ACK = "ack"
     SCAN = "scan"
     OTA = "ota"
+    CFG_FULL = "cfg_full"   # el panel espeja su config completa al conectar
 
 
 class AlarmaMode(str, Enum):

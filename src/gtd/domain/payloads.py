@@ -12,7 +12,16 @@ from typing import Any
 from pydantic import ValidationError
 
 from .contract import Channel, UpType
-from .models import StatusMsg, TeleMsg, UpAck, UpAlarma, UpOta, UpScan, is_schema_ok
+from .models import (
+    StatusMsg,
+    TeleMsg,
+    UpAck,
+    UpAlarma,
+    UpCfgFull,
+    UpOta,
+    UpScan,
+    is_schema_ok,
+)
 
 
 class PayloadError(ValueError):
@@ -27,6 +36,7 @@ _UP_MODELS = {
     UpType.ACK.value: UpAck,
     UpType.SCAN.value: UpScan,
     UpType.OTA.value: UpOta,
+    UpType.CFG_FULL.value: UpCfgFull,
 }
 
 

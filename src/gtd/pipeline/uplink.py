@@ -99,6 +99,12 @@ async def _handle_up(device_id, doc, model, repo: Repo) -> None:
             await repo.confirm_command(model.cid, res="ok",
                                        det=f"alarma {model.mode.value}")
 
+    elif t == UpType.CFG_FULL.value:
+        # El panel espeja su config al conectar. Se guarda como espejo (arbitrado
+        # por cfg_v en el repo), NO como evento: no es algo que pasó, es estado.
+        # El doc lleva las passwords WiFi en redes[].psw — jamás loguearlo entero.
+        await repo.upsert_config_espejo(device_id, model.cfg_v, doc)
+
     elif t == UpType.ACK.value:
         # Ack de cmd (cid) o de cfg (cfg_v). Cierra el ciclo del downlink.
         if model.cid:

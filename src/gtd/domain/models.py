@@ -80,6 +80,34 @@ class UpAck(_Envelope):
     det: str | None = None
 
 
+class UpCfgFull(_Envelope):
+    """Espejo de la config completa del panel. Lo publica al conectar.
+
+    OJO: `redes[].psw` son las passwords de WiFi en claro. Este documento NO se
+    loguea nunca entero — si hiciera falta, pasarlo por `obs.logging.redact`.
+    """
+    t: str = UpType.CFG_FULL.value
+    cfg_v: int                              # arbitra la versión: no pisar con una vieja
+    redes: list[dict[str, Any]] = Field(default_factory=list)   # {ssid,psw,prio,bl_perm}
+    modulos: dict[str, Any] | None = None   # {ds3231,eeprom,supervisor,rf,eeprom_slot}
+    hora: dict[str, Any] | None = None      # {tz_offset_s}
+    tiempos: dict[str, Any] | None = None   # {send_tele_s}
+    mante: dict[str, Any] | None = None     # {on}
+    alarma: dict[str, Any] | None = None    # {autooff:{<modo>:seg}}
+    cal: dict[str, Any] | None = None       # {bat,panel,fuente:{m,b}}
+    red_avanzada: dict[str, Any] | None = None   # {roam_rssi,roam_delta,roam_cooldown_s}
+    rf: dict[str, Any] | None = None        # {total_codigos,gen}
+    id: dict[str, Any] | None = None        # {dev,fw}
+
+    @property
+    def fw(self) -> str | None:
+        return (self.id or {}).get("fw")
+
+    @property
+    def rf_gen(self) -> int | None:
+        return (self.rf or {}).get("gen")
+
+
 class UpScan(_Envelope):
     t: str = UpType.SCAN.value
     redes: list[dict[str, Any]] = Field(default_factory=list)

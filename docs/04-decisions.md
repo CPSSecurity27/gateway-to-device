@@ -33,13 +33,18 @@ un repo separado tenga el "por qué".
 
 ## Puntos abiertos
 
-- **PA1 — Cambios de firmware:**
-  - ✅ **Hecho** (build en verde, host 46/46): device_id → STA 6 bytes;
-    `task_mqtt` → `get_role_secret(WM_ROLE_MQTT)`; **MAC del rol MQTT parametrizada
-    a STA** (device_hash_salted); buffers `dev[16]`→`[20]`; comentarios de doc.
-  - ⏳ **Pendiente:** #5 entropía → HMAC (congelar antes de la herramienta CPS);
-    #6 gating de reloj (D12); #7 `SALT_MQTT` real (hoy placeholder).
-  - **Bloqueante:** no provisionar el broker hasta congelar #5 y poner el salt real.
+- **PA1 — Cambios de firmware — ✅ TODOS HECHOS** (build en verde, host 52/52 con KAT):
+  - #1 device_id → STA 6 bytes; #2 buffers `dev[16]`→`[20]`;
+    #3 `task_mqtt` → `get_role_secret(WM_ROLE_MQTT)`; #4 **MAC del rol MQTT a STA**;
+    #5 **HMAC-SHA256(SALT_MQTT, MAC)** en C puro (`hmac_sha256.c`, KAT RFC 4231),
+    96 bits — **algoritmo congelado**;
+    #6 **gating del arranque MQTT al reloj confiable** (evita fallo TLS
+    cert-not-yet-valid en boot sin DS3231);
+    #7 **guard de build** (`build_guard.h`) que rechaza los salts placeholder en
+    producción — verificado que dispara.
+  - **Acción operativa restante (no es código):** inyectar el `SALT_MQTT` real por
+    `-D` en el build de producción (nunca commitear) y compartirlo con la CPS. El
+    guard obliga: `PRODUCTION_BUILD=1` no compila con el placeholder.
 - **PA2 — `SALT_MQTT` de producción:** cambiar el placeholder y compartirlo por
   canal seguro (fuera del repo).
 - **PA3 — Estación de flasheo:** confirmar que existe/estará (define D5).

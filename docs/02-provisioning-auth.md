@@ -17,17 +17,18 @@ broker. Contexto para el equipo de servidor y el equipo web.
 ## Derivación de credenciales
 
 ```
-usuario  = "AV-" + hex_mayus(MAC_STA[0..5])         # ✅ implementado
+usuario  = "AV-" + hex_mayus(MAC_STA[0..5])            # ✅ implementado
 
-# password — INTERÍN actual (implementado):
-password = "SCPS-" + hex_mayus( djb2(SALT_MQTT, MAC_STA[0..5]) & 0xFFFFFF )
-           # djb2-xor sobre SALT_MQTT y luego los 6 bytes; 24 bits
-
-# password — OBJETIVO (pendiente #5, congelar antes de armar la herramienta CPS):
-password = "SCPS-" + hex_mayus( HMAC-SHA256(SALT_MQTT, MAC_STA[0..5]) truncado )
+# password — VIGENTE (✅ implementado; algoritmo CONGELADO para la CPS):
+h        = HMAC-SHA256(key = SALT_MQTT, msg = MAC_STA[0..5])   # RFC 2104 + SHA-256
+password = "SCPS-" + hex_mayus(h[0..11])               # primeros 12 bytes = 96 bits
 ```
-Ambos usan la **MAC STA** y `SALT_MQTT`. La herramienta de provisioning debe
-replicar el algoritmo **vigente** byte a byte (hoy djb2; migrará a HMAC).
+- `key` = los bytes del string `SALT_MQTT` (**sin** el NUL final; `strlen`).
+- `msg` = los **6 bytes crudos** de la MAC STA (los mismos del usuario).
+- hex en **MAYÚSCULAS**, 2 chars por byte → `SCPS-` + 24 hex.
+- Implementación de referencia: `components/wifi_manager/hmac_sha256.c` (C puro,
+  verificado con el KAT de RFC 4231). La CPS puede reusar ese archivo o cualquier
+  HMAC-SHA256 estándar — el KAT garantiza que coinciden **byte a byte**.
 
 - El **panel calcula su propia credencial** de su MAC en cada arranque — cero
   provisioning del lado del equipo, mismo firmware para toda la flota.
@@ -38,11 +39,13 @@ replicar el algoritmo **vigente** byte a byte (hoy djb2; migrará a HMAC).
   firmware y provisioning. Debe coincidir byte a byte. Default actual en firmware
   es un placeholder a cambiar antes de producción.
 
-> ✅ **Estado firmware:** el fix ya está implementado (build en verde) — usuario y
-> password usan la **MAC STA** y la password deriva de **`SALT_MQTT`** (desacoplada
-> del salt de la etiqueta WiFi). Interín djb2/24-bit.
-> ⚠️ **Pendiente antes de provisionar el broker:** congelar #5 (HMAC) y poner el
-> `SALT_MQTT` real (hoy placeholder). Ver [04](04-decisions.md).
+> ✅ **Estado firmware:** implementado (build en verde, host 52/52 con KAT).
+> Usuario y password usan la **MAC STA**; password = **HMAC-SHA256(`SALT_MQTT`,
+> MAC)**, 96 bits, desacoplada de la etiqueta WiFi. **Algoritmo congelado.** Un
+> guard de build (`build_guard.h`) impide compilar producción con el `SALT_MQTT`
+> placeholder.
+> ⚠️ **Acción operativa antes de provisionar:** inyectar el `SALT_MQTT` real por
+> `-D` en el build de producción (nunca commitear) y compartirlo con la CPS.
 
 ## Flujo de provisioning (estación de flasheo)
 

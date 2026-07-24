@@ -14,7 +14,9 @@
 #
 # NO ejecuta `factory` (borra la config de la placa) ni `ota`. `restart` es opt-in.
 #
+#   WAIT_ONLINE=120  espera ese tanto a que la placa aparezca (default 15)
 #   SKIP_ALARMAS=1   no dispara alarmas (útil si la sirena molesta)
+#   CON_AUTOTEST=1   incluye t:test (omitido por defecto)
 #   CON_RESTART=1    reinicia la placa al final
 #
 set -uo pipefail
@@ -107,7 +109,11 @@ cmd "t:refresh — reenvía su snapshot"     '{"t":"refresh"}'   '"cid":"CID"'
 cmd "t:hora — sincroniza reloj"           '{"t":"hora"}'      '"cid":"CID"'
 cmd "t:scan — escanea redes WiFi"         '{"t":"scan"}'      '"cid":"CID"' 25
 cmd "t:i2c_scan — barre el bus I2C"       '{"t":"i2c_scan"}'  '"cid":"CID"'
-cmd "t:test — autotest"                   '{"t":"test"}'      '"cid":"CID"'
+if [ "${CON_AUTOTEST:-0}" = "1" ]; then
+  cmd "t:test — autotest"                 '{"t":"test"}'      '"cid":"CID"' 25
+else
+  c_skip "t:test — autotest (CON_AUTOTEST=1 para incluirlo)"
+fi
 cmd "t:rf op:query — consulta base RF"    '{"t":"rf","op":"query"}' '"cid":"CID"'
 cmd "t:cal — calibración"                 '{"t":"cal"}'       '"cid":"CID"'
 cmd "t:red — parámetros de red"           '{"t":"red"}'       '"cid":"CID"'

@@ -1,7 +1,10 @@
 # Gateway to Device (GtD)
 
 Puente entre los paneles de alarma ESP32 (firmware **AlarmaV6**) y el backend de
-CPS Security. Es el **único componente que habla MQTT** del lado servidor.
+CPS Security. Es el **único componente que habla MQTT** del lado servidor —
+*del sistema nuevo*: en el servidor todavía corre `broker-bridge` (MQTT→Firebase)
+sirviendo a las centrales de la generación anterior, pendiente de apagado. Usa
+otro espacio de tópicos, no colisiona. Ver [`deploy/README.md`](deploy/README.md).
 
 > Vive por ahora dentro del repo del firmware para mantener el contrato
 > sincronizado. Se separará a su propio repo más adelante.

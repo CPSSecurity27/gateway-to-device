@@ -1,0 +1,22 @@
+# ACL del listener 1883 (en claro, anónimo) — el sistema VIEJO.
+#
+# Objetivo: que el 1883 siga funcionando EXACTAMENTE como hasta hoy para las
+# centrales (CENTRALVECINAL05/06) y el broker-bridge, pero que deje de ser una
+# puerta lateral al espacio `av/` de los paneles nuevos.
+#
+# El broker es un solo bus: sin esto, cualquiera desde internet publica en
+# av/<MAC>/cmd por el puerto en claro y un panel conectado en 8883 obedece —
+# saltándose por completo la ACL del listener autenticado.
+#
+# Estas reglas aplican a clientes ANÓNIMOS (no hay bloques `user` a propósito:
+# en 1883 nadie se autentica).
+
+# El espacio de los paneles nuevos NO se toca desde el puerto en claro.
+# `deny` tiene precedencia sobre cualquier otra regla que matchee.
+topic deny av/#
+
+# Todo lo demás sigue abierto, igual que antes: CENTRALVECINAL##/servidor,
+# cliente/servidor, servidor/<Marcador>, y lo que las centrales usen.
+# Es deliberadamente amplio: no conocemos el inventario completo de tópicos del
+# sistema viejo, y restringirlo a ciegas lo rompería.
+topic readwrite #

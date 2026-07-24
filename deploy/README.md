@@ -56,12 +56,52 @@ Un panel conectándose se ve así:
 
 Solo se loguea el **cambio** de estado, no cada mensaje retenido.
 
-## Pendientes que este despliegue NO resuelve
+## El sistema viejo — PENDIENTE DE APAGADO, no tocar todavía
+
+Conviven dos generaciones en el mismo broker. Esto está documentado porque la
+decisión de apagar lo viejo ya se tomó, pero **no se puede ejecutar todavía**.
+
+**Qué es lo viejo:**
+
+- **Centrales `CENTRALVECINAL##`** — equipos en producción, publicando sobre 1883
+  en claro y sin credenciales (verificado el 2026-07-24: 05 y 06 reportando en
+  vivo). Tópicos `CENTRALVECINAL##/servidor`, `cliente/servidor`,
+  `servidor/<Marcador>`. **No hablan `av/`**: el GtD ni siquiera las parsea.
+- **`broker-bridge.service`** — traduce ese MQTT a push de Firebase (FCM). Es
+  **lo único** que hoy le avisa a la app que se disparó una alarma.
+
+**Por qué no se apaga todavía.** Apagarlo hoy deja a los usuarios de esas
+centrales sin aviso de alarma, y el GtD no los cubre: es otra generación de
+equipo, y el push en el diseño nuevo lo hace el backend de app leyendo Postgres,
+que todavía no existe. En un sistema de alarmas eso no falla ruidosamente — falla
+el día que alguien necesita el aviso.
+
+**Checklist para poder apagarlo** (cuando estén los cuatro, se retira sin huecos):
+
+- [ ] Postgres instalado y `PgRepo`/`PgListener` implementados.
+- [ ] Backend de app leyendo `LISTEN/NOTIFY` y mandando push.
+- [ ] Flota `AlarmaV6` flasheada con el `SALT_MQTT` de producción y conectando
+      por 8883 con credenciales.
+- [ ] Cada `CENTRALVECINAL##` reemplazada o migrada — inventario cerrado, no
+      asumir que 05 y 06 son todas.
+
+**Cómo apagarlo, llegado el momento:**
+
+```bash
+sudo systemctl disable --now broker-bridge
+# y en /etc/mosquitto/conf.d/default.conf, quitar el bloque `listener 1883`
+sudo systemctl restart mosquitto
+```
+
+Mientras tanto, lo nuevo sí está protegido: [`secure-av-namespace.sh`](secure-av-namespace.sh)
+le pone al 1883 una ACL que **niega `av/#`** y deja el resto abierto. El broker es
+un solo bus, así que sin eso cualquiera publicaría en `av/<MAC>/cmd` desde el
+puerto en claro y un panel en 8883 obedecería, salteándose la ACL autenticada.
+Las centrales no se ven afectadas: nunca usan `av/`.
+
+## Otros pendientes
 
 1. **Postgres.** Sin él no hay persistencia ni downlink. Falta `PgRepo` /
    `PgListener` contra `migrations/001_init.sql`.
 2. **Paneles en 8883.** Requiere el `SALT_MQTT` real en el build de producción y
    la ACL por panel (hoy comentada en [`gtd.acl`](gtd.acl)).
-3. **1883 abierto a internet** en `0.0.0.0`, anónimo. Es previo al GtD, pero
-   cualquiera puede publicar en los tópicos de los paneles. Cerrarlo a localhost
-   o migrar todo a 8883 en cuanto los paneles tengan credenciales.

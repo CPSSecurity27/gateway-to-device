@@ -78,12 +78,25 @@ echo "════════════════════════�
 # ── 0. ¿Está viva? ──────────────────────────────────────────────────
 titulo "Presencia de la placa"
 sub_activo
-if espera '"estado":"online"' 12; then
+ESPERA="${WAIT_ONLINE:-15}"
+echo "  (esperando hasta ${ESPERA}s a que publique 'online' — WAIT_ONLINE=120 para"
+echo "   arrancar el test y encender la placa después)"
+# El status es retained: si la placa está caída, el broker entrega su LWT. Se
+# ignora ese offline y se espera un online de verdad.
+if espera '"estado":"online"' "$ESPERA"; then
   c_ok "la placa está conectada y publicó su status"
 else
   echo
-  echo "  La placa no publicó nada en 12s. ¿Está encendida y conectada al broker?"
-  echo "  Verificar con: journalctl -u gateway-to-device -f"
+  if grep -q '"estado":"offline"' "$CAP"; then
+    echo "  El broker tiene un status RETENIDO de la placa que dice offline (LWT):"
+    echo "  la última vez que supo de ella fue para despedirla. No está conectada."
+  else
+    echo "  La placa no publicó nada en ${ESPERA}s."
+  fi
+  echo
+  echo "  En la consola de la placa tiene que aparecer:  MQTT_T: conectado al broker"
+  echo "  Si no llega ahí, el problema es anterior (WiFi / NTP / TLS)."
+  echo "  Reintentar con:  WAIT_ONLINE=120 bash deploy/test-panel-live.sh"
   exit 1
 fi
 

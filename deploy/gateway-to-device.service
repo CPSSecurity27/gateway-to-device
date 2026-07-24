@@ -1,0 +1,35 @@
+[Unit]
+Description=Gateway to Device (GtD) — puente MQTT <-> Postgres de CPS Security
+Documentation=https://github.com/CPSSecurity27/gateway-to-device
+# El broker corre en la misma máquina: arrancar después, y reintentar si no está.
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=servidorcps
+Group=servidorcps
+WorkingDirectory=/home/servidorcps/SistemaCPS/gateway-to-device
+# El .env NO se carga con EnvironmentFile a propósito: pydantic-settings lo lee
+# desde el WorkingDirectory, y systemd no entiende los comentarios en línea que
+# tiene el .env.example.
+ExecStart=/home/servidorcps/SistemaCPS/gateway-to-device/.venv/bin/python -m gtd
+Environment=PYTHONUNBUFFERED=1
+
+# El GtD tolera que el broker se caiga (reconecta solo). Si el proceso muere,
+# es por algo peor: reintentar sin ahogar la Pi.
+Restart=always
+RestartSec=10
+
+# Endurecimiento: el GtD no necesita nada del sistema salvo su propio directorio.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/servidorcps/SistemaCPS/gateway-to-device
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

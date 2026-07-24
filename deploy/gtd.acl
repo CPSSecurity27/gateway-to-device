@@ -1,0 +1,22 @@
+# ACL del listener 8883 (TLS, autenticado).
+#
+# Solo aplica a 8883: con `per_listener_settings true` cada listener tiene su
+# propia seguridad, y el 1883 en claro queda como estaba (anónimo, sin ACL).
+#
+# OJO: no hay reglas para clientes anónimos acá a propósito. En 8883
+# `allow_anonymous false` los rechaza antes de llegar a la ACL.
+
+# El GtD: lee todo lo que sube la flota, escribe solo los canales de bajada.
+# Este es el principio del diseño: nadie más publica en av/+/cmd ni av/+/cfg.
+user gateway
+topic read av/+/status
+topic read av/+/tele
+topic read av/+/up
+topic write av/+/cmd
+topic write av/+/cfg
+
+# PENDIENTE — paneles: hoy siguen en 1883 anónimo. Cuando el firmware provisione
+# credenciales (usuario AV-<MAC>, password HMAC-SHA256 — ver docs/02), acá va una
+# regla por panel o un `pattern`. No se puede usar `pattern ... %u` directamente:
+# el usuario es "AV-<MAC-en-hex>" y el tópico es "av/<MAC>", no coinciden byte a
+# byte. Definir eso al migrar los paneles a 8883.

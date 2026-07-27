@@ -47,4 +47,23 @@ un repo separado tenga el "por qué".
     guard obliga: `PRODUCTION_BUILD=1` no compila con el placeholder.
 - **PA2 — `SALT_MQTT` de producción:** cambiar el placeholder y compartirlo por
   canal seguro (fuera del repo).
+- **PA4 — 🔴 BLOQUEANTE: el salt no reproduce el vector de verificación**
+  (2026-07-27). El doc de provisioning entregado al equipo de servidor publica
+  este vector: MAC `A8:42:E3:8F:CA:6C` → password `4EA453D76DD9E1C81A0D141B`.
+  Con el salt disponible hoy, **ninguna de 16 variantes del algoritmo lo
+  reproduce** (`deploy/diag-salt.sh`): ni key/msg invertidos, ni la MAC como
+  string, ni con `\0`/`\n` al final, ni SHA-1, ni SHA-256 sin HMAC. Que fallen
+  todas descarta un problema de formato: **el salt no es el que generó el vector**.
+  - Hipótesis A: el salt disponible es el **placeholder** de laboratorio. Encaja
+    con que la placa de prueba corre en `MODO LABORATORIO` con password fija
+    (`dev-sin-secreto`), o sea que su build **no deriva nada**.
+  - Hipótesis B: el vector del doc quedó **viejo**, generado con un salt anterior.
+  - **Para cerrarlo** hace falta que quien compiló el build de producción confirme
+    el `SALT_MQTT` inyectado por `-D` y **regenere el vector con ese salt**.
+  - **Consecuencia:** no se puede dar de alta ningún panel por derivación hasta
+    resolverlo — quedarían con credenciales que su firmware no puede reproducir, y
+    el síntoma (`Not authorized`) aparecería recién en el campo.
+  - **Interín:** registrar con la password del vector explícita
+    (`PANEL_PASSWORD=…`). Si un build de producción conecta con eso, el vector es
+    bueno y el problema era el salt (hipótesis A).
 - **PA3 — Estación de flasheo:** confirmar que existe/estará (define D5).

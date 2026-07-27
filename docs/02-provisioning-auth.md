@@ -27,15 +27,17 @@ password = hex_mayus(h[0..11])                         # primeros 12 bytes = 96 
 - `msg` = los **6 bytes crudos** de la MAC STA (los mismos del usuario).
 - hex en **MAYÚSCULAS**, 2 chars por byte → **24 chars exactos, sin prefijo**.
 
-> ⚠️ **Discrepancia sin cerrar (2026-07-24).** Este documento decía
-> `password = "SCPS-" + hex`. El doc de provisioning entregado al equipo de
-> servidor especifica los **24 hex pelados, sin `SCPS-`**, y trae un vector de
-> verificación de 24 caracteres que lo confirma. Se adoptó la versión sin prefijo
-> por ser la más reciente y la única con vector comprobable.
-> **Falta confirmarlo contra `mqtt_config.h` del firmware**: si el firmware
-> antepone `SCPS-`, los paneles reciben `Not authorized` y hay que registrar con
-> `MQTT_PASS_PREFIX=SCPS-` en `deploy/provision-panel.sh`.
-> Con un build de producción real esto se resuelve en un intento de conexión.
+> ✅ **Verificado contra el firmware (2026-07-27).** Este documento decía antes
+> `password = "SCPS-" + hex`, y era **incorrecto**. La fuente
+> (`components/wifi_manager/wifi_manager.c`, `wifi_manager_get_role_secret`) emite
+> los 12 bytes como `"%02X"` y nada más:
+>
+> ```c
+> cps_hmac_sha256(SECURITY_SALT_MQTT, strlen(...), mac /*6 bytes STA*/, 6, h);
+> for (int i = 0; i < 12; i++) snprintf(out + i*2, 3, "%02X", h[i]);
+> ```
+>
+> **24 chars, sin prefijo.** Coincide con el doc entregado al equipo de servidor.
 
 ### Vector de verificación
 

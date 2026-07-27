@@ -57,24 +57,50 @@ if [ -n "${PANEL_PASSWORD:-}" ]; then
   PASSWORD="$PANEL_PASSWORD"
   MODO="explícita (build de laboratorio)"
 else
-  if [ -z "${SALT_MQTT:-}" ]; then
-    echo -n "SALT_MQTT (no se muestra al tipear): "
-    read -rs SALT_MQTT
+  # El doc del equipo de servidor la llama MQTT_DERIV_SALT; el firmware, SALT_MQTT.
+  # Es el mismo secreto: se acepta cualquiera de los dos nombres.
+  SALT="${MQTT_DERIV_SALT:-${SALT_MQTT:-}}"
+  if [ -z "$SALT" ]; then
+    echo -n "SALT de derivación (no se muestra al tipear): "
+    read -rs SALT
     echo
   fi
-  [ -n "$SALT_MQTT" ] || die "SALT_MQTT vacío (o exportar PANEL_PASSWORD si el build es LAB)."
+  [ -n "$SALT" ] || die "Salt vacío (o exportar PANEL_PASSWORD si el build es LAB)."
 
   # En Python y no en openssl: la clave y el mensaje son bytes crudos y no quiero
   # que el shell interprete nada del salt.
-  PASSWORD="$(SALT="$SALT_MQTT" HEXMAC="$HEX_MAC" python3 - <<'PYEOF'
+  #
+  # Antes de derivar nada se valida el salt contra el VECTOR DE VERIFICACIÓN del
+  # doc de provisioning. Sin esto, un salt equivocado registra credenciales que
+  # parecen válidas y fallan recién cuando el panel intenta conectar — que es el
+  # peor momento para enterarse.
+  KAT_MAC="A842E38FCA6C"
+  KAT_PASS="4EA453D76DD9E1C81A0D141B"
+  PREFIJO="${MQTT_PASS_PREFIX:-}"      # el doc de servidor no lleva prefijo
+
+  read -r KAT_CALC PASSWORD <<EOF
+$(SALT="$SALT" HEXMAC="$HEX_MAC" KATMAC="$KAT_MAC" PRE="$PREFIJO" python3 - <<'PYEOF'
 import hashlib, hmac, os
 salt = os.environ["SALT"].encode()          # sin el NUL final (strlen en C)
-mac  = bytes.fromhex(os.environ["HEXMAC"])  # los 6 bytes crudos
-h    = hmac.new(salt, mac, hashlib.sha256).digest()
-print("SCPS-" + h[:12].hex().upper())
+pre  = os.environ["PRE"]
+def deriv(hexmac: str) -> str:
+    mac = bytes.fromhex(hexmac)             # los 6 bytes crudos, no el string
+    return pre + hmac.new(salt, mac, hashlib.sha256).digest()[:12].hex().upper()
+print(deriv(os.environ["KATMAC"]), deriv(os.environ["HEXMAC"]))
 PYEOF
-)"
-  MODO="HMAC-SHA256 del contrato"
+)
+EOF
+
+  if [ "$KAT_CALC" != "${PREFIJO}${KAT_PASS}" ]; then
+    echo
+    echo "  vector esperado : ${PREFIJO}${KAT_PASS}   (MAC ${KAT_MAC})"
+    echo "  calculado       : ${KAT_CALC}"
+    die "El salt NO reproduce el vector de verificación del doc de provisioning.
+   O el salt no es el de producción, o el formato de la password difiere.
+   NO se registró nada. Ver docs/02-provisioning-auth.md §Derivación."
+  fi
+  ok "salt validado contra el vector del doc (MAC ${KAT_MAC})"
+  MODO="HMAC-SHA256 derivada del salt"
 fi
 [ -n "$PASSWORD" ] || die "Password vacía."
 

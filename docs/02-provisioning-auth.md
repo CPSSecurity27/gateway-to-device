@@ -21,11 +21,38 @@ usuario  = "AV-" + hex_mayus(MAC_STA[0..5])            # ✅ implementado
 
 # password — VIGENTE (✅ implementado; algoritmo CONGELADO para la CPS):
 h        = HMAC-SHA256(key = SALT_MQTT, msg = MAC_STA[0..5])   # RFC 2104 + SHA-256
-password = "SCPS-" + hex_mayus(h[0..11])               # primeros 12 bytes = 96 bits
+password = hex_mayus(h[0..11])                         # primeros 12 bytes = 96 bits
 ```
 - `key` = los bytes del string `SALT_MQTT` (**sin** el NUL final; `strlen`).
 - `msg` = los **6 bytes crudos** de la MAC STA (los mismos del usuario).
-- hex en **MAYÚSCULAS**, 2 chars por byte → `SCPS-` + 24 hex.
+- hex en **MAYÚSCULAS**, 2 chars por byte → **24 chars exactos, sin prefijo**.
+
+> ⚠️ **Discrepancia sin cerrar (2026-07-24).** Este documento decía
+> `password = "SCPS-" + hex`. El doc de provisioning entregado al equipo de
+> servidor especifica los **24 hex pelados, sin `SCPS-`**, y trae un vector de
+> verificación de 24 caracteres que lo confirma. Se adoptó la versión sin prefijo
+> por ser la más reciente y la única con vector comprobable.
+> **Falta confirmarlo contra `mqtt_config.h` del firmware**: si el firmware
+> antepone `SCPS-`, los paneles reciben `Not authorized` y hay que registrar con
+> `MQTT_PASS_PREFIX=SCPS-` en `deploy/provision-panel.sh`.
+> Con un build de producción real esto se resuelve en un intento de conexión.
+
+### Vector de verificación
+
+Con el `SALT_MQTT` **de producción**:
+
+| Campo | Valor |
+|---|---|
+| MAC | `A8:42:E3:8F:CA:6C` |
+| usuario | `AV-A842E38FCA6C` |
+| password | `4EA453D76DD9E1C81A0D141B` |
+
+`deploy/provision-panel.sh` valida el salt contra este vector **antes** de registrar
+nada: un salt equivocado produce credenciales que parecen válidas y fallan recién
+cuando el panel intenta conectar.
+
+El salt se acepta por `MQTT_DERIV_SALT` (nombre del doc de servidor) o `SALT_MQTT`
+(nombre del firmware) — es el mismo secreto.
 - Implementación de referencia: `components/wifi_manager/hmac_sha256.c` (C puro,
   verificado con el KAT de RFC 4231). La CPS puede reusar ese archivo o cualquier
   HMAC-SHA256 estándar — el KAT garantiza que coinciden **byte a byte**.

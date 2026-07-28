@@ -9,7 +9,7 @@ import logging
 import pytest
 
 from gtd.db.repo import StubRepo
-from gtd.pipeline import uplink
+from gtd.pipeline import presencia, uplink
 
 MAC = "AA:BB:CC:DD:EE:FF"
 
@@ -25,10 +25,10 @@ def _status(estado: str, **extra) -> bytes:
 
 @pytest.fixture(autouse=True)
 def _limpiar_estado():
-    """El caché de transiciones es global: aislar cada test."""
-    uplink._last_estado.clear()
+    """El registro de presencia es global: aislar cada test."""
+    presencia.reiniciar()
     yield
-    uplink._last_estado.clear()
+    presencia.reiniciar()
 
 
 async def test_primer_status_online_se_loguea(caplog):

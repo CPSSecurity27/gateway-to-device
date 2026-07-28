@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     mqtt_ca_file: str = ""           # vacío = bundle del sistema
     mqtt_client_id: str = "gtd-1"
 
+    # Presencia — ver pipeline/presencia.py
+    # Silencio que marca a un panel como caído. Generoso a propósito: sobre enlaces
+    # satelitales (Starlink) se midieron cortes de ~50 s que NO son una falla.
+    presence_timeout_s: int = 180
+    # Silencio previo mínimo para leer un `status` repetido como una reconexión.
+    # Por encima de la cadencia de telemetría (30 s) y del mayor hueco medido (63 s).
+    reconnect_gap_s: int = 60
+
     # Postgres — vacío ⇒ StubRepo (sin base todavía)
     pg_dsn: str = ""
 

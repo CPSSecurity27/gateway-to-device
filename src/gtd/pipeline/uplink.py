@@ -15,14 +15,9 @@ from ..db.repo import Repo
 from ..domain import payloads
 from ..domain.contract import AlarmaOrigin, Channel, UpType
 from ..mqtt import topics
+from . import presencia
 
 log = logging.getLogger("gtd.uplink")
-
-# Último `estado` visto por MAC, para loguear solo las TRANSICIONES: el status es
-# retained y se repite en cada reconexión, no queremos una línea por repetición.
-# Acotado por el tamaño de la flota; se pierde al reiniciar (y entonces el primer
-# status de cada panel se loguea de nuevo, que es justo lo que se quiere al arrancar).
-_last_estado: dict[str, str] = {}
 
 # estado → (nivel, marca). offline en WARNING para que salte en el journal.
 # Marcas ASCII a propósito: el log puede terminar en una consola cp1252 (Windows),
@@ -34,34 +29,57 @@ _ESTADO_LOG = {
 }
 
 
-def _log_transicion(device_id: str, model) -> None:
-    """Loguea el cambio de estado de un panel. Silencioso si no cambió."""
-    estado = model.estado
-    if _last_estado.get(device_id) == estado:
-        return
-    anterior = _last_estado.get(device_id, "?")
-    _last_estado[device_id] = estado
-
-    nivel, marca = _ESTADO_LOG.get(estado, (logging.INFO, f"? panel {estado}"))
+def _detalle(model) -> str:
     detalle = ""
-    if estado == "online" and model.modo:
+    if model.estado == "online" and model.modo:
         detalle = f" modo={model.modo}"
-    elif estado == "durmiendo" and model.despierta:
+    elif model.estado == "durmiendo" and model.despierta:
         detalle = f" despierta={model.despierta}"
-    elif estado == "offline" and model.causa:
+    elif model.estado == "offline" and model.causa:
         detalle = f" causa={model.causa}"
     if model.fw:
         detalle += f" fw={model.fw}"
+    return detalle
 
-    log.log(nivel, "%s mac=%s%s (antes=%s)", marca, device_id, detalle, anterior)
+
+def _log_status(device_id: str, model, *, silencio: float, gap: float) -> None:
+    """Loguea lo que el `status` significa: transición, reconexión o nada."""
+    evento, anterior = presencia.ver_status(
+        device_id, model.estado, silencio=silencio, gap=gap,
+        despierta=model.despierta,
+    )
+
+    if evento is presencia.EventoStatus.REPETIDO:
+        return
+
+    if evento is presencia.EventoStatus.RECONEXION:
+        # El broker no publica el LWT en un takeover de sesión: sin esto, una
+        # reconexión es invisible y el panel parece haber estado online todo el
+        # tiempo. Ver presencia.py.
+        log.info("[r] panel RECONECTÓ mac=%s%s (tras %.0fs sin hablar, van %d)",
+                 device_id, _detalle(model), silencio,
+                 presencia.reconexiones(device_id))
+        return
+
+    nivel, marca = _ESTADO_LOG.get(model.estado, (logging.INFO, f"? panel {model.estado}"))
+    log.log(nivel, "%s mac=%s%s (antes=%s)", marca, device_id, _detalle(model), anterior)
 
 
-async def handle(raw_topic: str, raw_payload: bytes, repo: Repo) -> None:
+async def handle(raw_topic: str, raw_payload: bytes, repo: Repo,
+                 *, gap_reconexion: float = 60.0) -> None:
     parsed = topics.parse(raw_topic)
     if parsed is None:
         log.debug("tópico ignorado: %s", raw_topic)
         return
     device_id, channel = parsed
+
+    # Se registra ANTES de validar el payload: que el mensaje esté mal formado no
+    # significa que el panel esté muerto — está vivo y hablando, que es lo que
+    # mide la presencia.
+    act = presencia.actividad(device_id)
+    if act.volvio:
+        log.warning("[+] panel VOLVIÓ mac=%s (estaba sin señal)", device_id)
+        await repo.upsert_panel_state(device_id, online=True)
 
     try:
         model, doc = payloads.parse(channel, raw_payload)
@@ -71,7 +89,7 @@ async def handle(raw_topic: str, raw_payload: bytes, repo: Repo) -> None:
         return
 
     if channel is Channel.STATUS:
-        _log_transicion(device_id, model)
+        _log_status(device_id, model, silencio=act.silencio, gap=gap_reconexion)
         await repo.upsert_panel_state(
             device_id, online=model.online, modo_energia=model.modo,
             last_seen=model.ts,

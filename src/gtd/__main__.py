@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 import aiomqtt
+import asyncpg
 
 from . import mqtt as mqtt_pkg
 from .db.listener import StubListener
-from .db.repo import Repo, StubRepo
+from .db.repo import Repo, RepoUnavailable, StubRepo
+from .db.spool import Spool
 from .mqtt import topics
 from .obs import logging as obs
 from .pipeline import downlink, presencia, uplink
@@ -46,7 +49,8 @@ def make_listener(settings: Settings):
     return StubListener()
 
 
-async def _uplink_loop(client: aiomqtt.Client, repo: Repo, settings: Settings) -> None:
+async def _uplink_loop(client: aiomqtt.Client, repo: Repo, settings: Settings,
+                       spool: Spool) -> None:
     async for message in client.messages:
         payload = message.payload
         if isinstance(payload, (bytes, bytearray)):
@@ -54,7 +58,33 @@ async def _uplink_loop(client: aiomqtt.Client, repo: Repo, settings: Settings) -
         else:
             raw = str(payload).encode()
         await uplink.handle(str(message.topic), raw, repo,
-                            gap_reconexion=settings.reconnect_gap_s)
+                            gap_reconexion=settings.reconnect_gap_s,
+                            spool=spool)
+
+
+async def _drenar_spool(spool: Spool, repo: Repo, period_s: int = 30) -> None:
+    """Reintenta los `up` que quedaron en disco durante una caída de la base.
+
+    Corre FUERA del TaskGroup de MQTT: drenar no depende del broker, y no debe
+    morir con él.
+    """
+    while True:
+        await asyncio.sleep(period_s)
+        entradas = spool.leer()
+        if not entradas:
+            continue
+        quedan: list[dict] = []
+        for i, e in enumerate(entradas):
+            try:
+                await uplink.replay(e["mac"], e["doc"], repo)
+            except RepoUnavailable:
+                quedan.extend(entradas[i:])   # sigue caída: preservar el orden
+                break
+            except Exception:
+                log.exception("entrada de spool irreproducible, se descarta: %.80s", e)
+        spool.reescribir(quedan)
+        if not quedan:
+            log.info("spool drenado (%d eventos)", len(entradas))
 
 
 async def _watchdog_presencia(repo: Repo, settings: Settings) -> None:
@@ -90,8 +120,12 @@ async def run() -> None:
 
     repo = make_repo(settings)
     listener = make_listener(settings)
+    spool = Spool(Path(settings.spool_path))
     await repo.start()
     await listener.start()
+
+    # Drenar el spool no depende del broker: corre aparte y no muere con MQTT.
+    drainer = asyncio.create_task(_drenar_spool(spool, repo), name="spool-drainer")
 
     try:
         while True:
@@ -104,15 +138,26 @@ async def run() -> None:
                     for sub in topics.subscriptions():
                         await client.subscribe(sub, qos=1)
                     log.info("suscripto a %s", topics.subscriptions())
+                    # Reconexión MQTT: un publish que falló a mitad de camino
+                    # dejó filas pending sin NOTIFY vivo (P0-1, tercer caso).
+                    await listener.sweep()
                     async with asyncio.TaskGroup() as tg:
-                        tg.create_task(_uplink_loop(client, repo, settings))
+                        tg.create_task(_uplink_loop(client, repo, settings, spool))
                         tg.create_task(_downlink_loop(client, listener, repo))
                         tg.create_task(_watchdog_presencia(repo, settings))
             except* aiomqtt.MqttError as eg:
                 log.warning("MQTT caído (%s) — reintento en %ss",
                             eg.exceptions[0], RECONNECT_S)
                 await asyncio.sleep(RECONNECT_S)
+            except* (asyncpg.PostgresError, OSError) as eg:
+                # Cinturón: PgRepo/PgListener contienen sus errores; si algo se
+                # escapa igual, el servicio NO muere (doc 06 §3.b) — reintenta
+                # como con MQTT.
+                log.error("error de base no contenido (%s) — reintento en %ss",
+                          eg.exceptions[0], RECONNECT_S)
+                await asyncio.sleep(RECONNECT_S)
     finally:
+        drainer.cancel()
         await listener.close()
         await repo.close()
 

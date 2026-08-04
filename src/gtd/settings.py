@@ -26,8 +26,13 @@ class Settings(BaseSettings):
     # Por encima de la cadencia de telemetría (30 s) y del mayor hueco medido (63 s).
     reconnect_gap_s: int = 60
 
-    # Postgres — vacío ⇒ StubRepo (sin base todavía)
+    # Postgres — vacío ⇒ StubRepo (sin base). Conexión DIRECTA, sin pgbouncer:
+    # si algún día hay pooler, el listener necesita un DSN directo aparte.
     pg_dsn: str = ""
+
+    # Spool del canal `up`: eventos que no pudieron entrar a la base (el PUBACK
+    # ya salió, no existen en ningún otro lado). Relativo al working dir.
+    spool_path: str = "var/spool-up.jsonl"
 
     # Observabilidad
     log_level: str = "INFO"

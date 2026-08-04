@@ -86,5 +86,91 @@ ventana es chica pero el costo de caer en ella es total).
 
 ---
 
+## F4 · Aplicar una `cfg` no refresca el espejo de forma confiable
+
+**Problema.** `mq_apply_cfg()` (`components/main/task_mqtt.c:424`) **no** llama a
+`system_state_cfg_full_touch()`. Que el espejo se actualice o no depende de qué
+sección tocó el patch, porque el touch está escondido adentro de algunos
+setters y no de otros:
+
+| Sección | Setter | ¿Refresca el espejo? |
+|---|---|---|
+| `red_avanzada` | `app_roam_set` (`task_wifi.c:31`) | **sí** |
+| `alarma.autooff` | `app_autooff_set_mode` (`task_alarma.c:130`) | **sí** |
+| `mante` | `app_mante_set` | **sí** |
+| `tiempos` | `eeprom_nvs_mqtt_set_tele_s` **directo** (línea 440) | **no** |
+| `redes` | `eeprom_nvs_save_credentials` directo | **no** |
+| `hora`, `central` | setters directos | **no** |
+
+Y se nota que la intención era refrescar siempre: el mismo cambio hecho desde el
+portal local pasa por `app_tele_period_set()` (línea 215), que **sí** hace el
+touch. Los dos caminos escriben lo mismo y se comportan distinto.
+
+**Consecuencia si no se arregla.** Del lado servidor no podemos confiar en el
+`cfg_full` después de una cfg, así que **encadenamos un `cmd t:refresh` a cada
+publicación**: un comando extra por cada cambio de configuración de cada panel de
+la flota. Y como el `cfg_full` es el único lugar donde se ve qué quedó después de
+los clamps silenciosos, sin ese refresh la pantalla no puede decir la verdad.
+
+**Propuesta.** Una línea: `system_state_cfg_full_touch()` al final de
+`mq_apply_cfg()`, sin condición, después de `eeprom_nvs_mqtt_set_cfg_v()`. Los
+setters que ya lo llaman quedan idempotentes (es un flag, no un envío). Con eso
+el `refresh` encadenado se puede sacar del servidor.
+
+**Prioridad:** alta (nos ahorra un comando por cada cambio de config, y es una línea).
+
+---
+
+## F5 · Una `cfg` malformada es silencio total
+
+**Problema.** En `mq_handle_cfg()` (`task_mqtt.c:462`), si `mqtt_parse_cfg()`
+falla se incrementa `s_mqtt_cfg_rejected`, se loguea local y **no se manda
+ningún ack**. El único ack de cfg que existe es el de éxito, con `res`
+hardcodeado en `"ok"` (línea 476).
+
+**Consecuencia si no se arregla.** Desde el servidor, una cfg que el panel no
+pudo parsear es **indistinguible** de un panel dormido, de uno sin señal y de un
+mensaje que se perdió. El operador ve "enviada, sin confirmar" y no hay forma de
+saber si conviene esperar o corregir. El contador vive en el equipo, donde nadie
+lo mira.
+
+**Propuesta.** Emitir `up t:ack` con `res:"error"` y un `det` corto (`"parse"`,
+o el campo que falló) cuando `mqtt_parse_cfg` rechaza. El `cfg_v` puede ir en 0
+si no se pudo leer. El lado servidor ya lo soporta: `gtd.confirm_config` acepta
+`res`/`det` y marca la cfg como fallida con su detalle — hoy ese camino existe y
+nunca se ejercita porque el firmware no lo usa.
+
+**Prioridad:** media (no rompe nada, pero convierte un silencio ambiguo en un
+diagnóstico).
+
+---
+
+## F6 · `mq_pub_cfg_full` descarta el espejo en silencio si no entra
+
+**Problema.** `mq_pub_cfg_full()` (`task_mqtt.c:300-314`): si el documento
+truncó (`n <= 0`), **limpia el flag `dirty`**, incrementa `s_mqtt_pub_fail` y
+retorna. No publica nada y nadie afuera se entera.
+
+El comentario explica bien por qué se limpia el flag (dejarlo prendido
+reintentaría cada 100 ms para siempre) — la decisión es correcta, lo que falta es
+avisar.
+
+**Consecuencia si no se arregla.** Un `cmd t:refresh` puede no producir
+absolutamente nada. Del lado servidor eso se ve como "el panel no contestó", y la
+configuración queda "sin verificar" para siempre sobre un equipo que está
+perfecto. Es el peor caso: un panel sano que parece roto, sin ninguna pista.
+
+**Propuesta.** Cuando el `cfg_full` no entre, emitir un `up` mínimo avisándolo
+—por ejemplo `{"t":"cfg_full","truncado":true,"cfg_v":N}`— o incluirlo en el
+`tele` como un contador visible. Alcanza con que el servidor sepa que el espejo
+quedó viejo *a propósito* y no por un mensaje perdido.
+
+**Prioridad:** media (afecta el diagnóstico, no la operación).
+
+---
+
 *Contacto: los docs 07 (integración) y el contrato en el repo web
-(`docs/contrato-gtd-postgres.md`) tienen el contexto completo.*
+(`docs/contrato-gtd-postgres.md`) tienen el contexto completo. F4-F6 salieron de
+implementar la pantalla de configuración por equipo; el diseño está en
+`docs/superpowers/specs/2026-08-04-configuracion-por-equipo-design.md` del repo
+web.*

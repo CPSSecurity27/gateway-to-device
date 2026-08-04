@@ -52,6 +52,18 @@ class Repo(Protocol):
         self, cid: str, *, res: str | None = None, det: str | None = None,
     ) -> None: ...
 
+    async def confirm_config(
+        self, mac: str, cfg_v: int, *, res: str = "ok", det: str | None = None,
+    ) -> None:
+        """Ack de una cfg aplicada.
+
+        NO trae `cid`: el firmware arma el ack de cfg con `cfg_v` y nada más
+        (`mqtt_build_up_ack_cfg`), así que se correlaciona por (mac, cfg_v). Del
+        otro lado esto marca la cfg como aplicada y encola el `cmd t:refresh`
+        que trae el espejo de vuelta.
+        """
+        ...
+
     async def upsert_config_espejo(
         self, mac: str, cfg_v: int, payload: dict[str, Any],
     ) -> None: ...
@@ -105,6 +117,9 @@ class StubRepo:
     async def confirm_command(self, cid, *, res=None, det=None) -> None:
         log.info("command confirmado cid=%s res=%s det=%s", cid, res, det)
 
+    async def confirm_config(self, mac, cfg_v, *, res="ok", det=None) -> None:
+        log.info("cfg confirmada mac=%s cfg_v=%s res=%s", mac, cfg_v, res)
+
     async def upsert_config_espejo(self, mac, cfg_v, payload) -> None:
         log.info("config espejo[%s] cfg_v=%s", mac, cfg_v)
 
@@ -156,6 +171,10 @@ class PgRepo:
                                  p_eid => $4, p_ts => $5)
     """
     _SQL_CONFIRM = "SELECT gtd.confirm_command(p_cid => $1, p_res => $2, p_det => $3)"
+    _SQL_CONFIRM_CFG = """
+        SELECT gtd.confirm_config(p_mac => $1, p_cfg_v => $2,
+                                  p_res => $3, p_det => $4)
+    """
     _SQL_ESPEJO = "SELECT gtd.upsert_config_espejo(p_mac => $1, p_cfg_v => $2, p_payload => $3)"
     _SQL_FETCH_CMDS = "SELECT cid, tipo, payload FROM gtd.fetch_pending_commands($1)"
     _SQL_FETCH_CFG = "SELECT cfg_v, payload FROM gtd.fetch_pending_config($1)"
@@ -233,6 +252,13 @@ class PgRepo:
                                  intentos=self.EVENT_RETRIES)
         if r != "ok":
             log.warning("confirm_command cid=%s → %s", cid, r)
+
+    async def confirm_config(self, mac, cfg_v, *, res="ok", det=None) -> None:
+        r = await self._fetchval(self._SQL_CONFIRM_CFG, mac, cfg_v, res, det,
+                                 intentos=self.EVENT_RETRIES)
+        # 'noop' es normal: el ack reentregado por QoS 1 de una cfg ya aplicada.
+        if r not in ("ok", "noop"):
+            log.warning("confirm_config mac=%s cfg_v=%s → %s", mac, cfg_v, r)
 
     async def upsert_config_espejo(self, mac, cfg_v, payload) -> None:
         r = await self._fetchval(self._SQL_ESPEJO, mac, cfg_v, payload)

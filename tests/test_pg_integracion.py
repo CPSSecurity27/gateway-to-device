@@ -267,6 +267,42 @@ async def test_cfg_v_reportada_aplica(admin, equipo, repo):
     assert estado == "applied"
 
 
+# ── El ack de la cfg: aplica y encadena el refresh ──────────────────
+
+async def test_confirm_config_aplica_y_encola_refresh(admin, equipo, repo):
+    """El ack de una cfg no trae cid; se correlaciona por (mac, cfg_v).
+
+    Y encadena el `cmd t:refresh`, porque aplicar una cfg NO refresca el espejo
+    de forma confiable: los setters del firmware llaman a `cfg_full_touch()`
+    sólo en algunas secciones.
+    """
+    await repo.upsert_config_espejo(MAC, 1, ESPEJO_MINIMO)
+    cfg_v = await admin.fetchval("SELECT gtd.publish_config($1, '{}'::jsonb)", equipo)
+    await repo.mark_config_sent(MAC, cfg_v)
+
+    await repo.confirm_config(MAC, cfg_v)
+
+    estado = await admin.fetchval(
+        "SELECT estado FROM gtd.panel_config WHERE mac = $1", MAC)
+    assert estado == "applied"
+
+    refrescos = await admin.fetchval(
+        "SELECT count(1) FROM gtd.commands WHERE mac = $1 AND tipo = 'refresh'",
+        MAC)
+    assert refrescos == 1
+
+    # El ack reentregado por QoS 1 no encola un segundo refresh.
+    await repo.confirm_config(MAC, cfg_v)
+    refrescos = await admin.fetchval(
+        "SELECT count(1) FROM gtd.commands WHERE mac = $1 AND tipo = 'refresh'",
+        MAC)
+    assert refrescos == 1
+
+
+async def test_confirm_config_de_equipo_fantasma_no_explota(repo):
+    await repo.confirm_config(MAC_FANTASMA, 1)   # unknown_device, sin excepción
+
+
 # ── 15-16: el contrato lo impone el motor ───────────────────────────
 
 async def test_cps_alarms_sin_dml_directo(equipo):

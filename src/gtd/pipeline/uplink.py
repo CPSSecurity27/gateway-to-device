@@ -153,9 +153,15 @@ async def _handle_up(mac, doc, model, repo: Repo) -> None:
         await repo.insert_evento(mac, t, redact(doc), ts=model.ts)
 
     elif t == UpType.ACK.value:
-        # Ack de cmd (cid) o de cfg (cfg_v). Cierra el ciclo del downlink.
+        # Ack de cmd (trae cid) o de cfg (trae cfg_v y NO trae cid). Son dos
+        # caminos distintos: el de cfg se correlaciona por (mac, cfg_v), y sin
+        # esta rama caía en el dead letter como `sin_destino` — la confirmación
+        # existía y la tirábamos.
         if model.cid:
             await repo.confirm_command(model.cid, res=model.res, det=model.det)
+        elif model.cfg_v is not None:
+            await repo.confirm_config(mac, model.cfg_v,
+                                      res=model.res or "ok", det=model.det)
         await repo.insert_evento(mac, t, doc, ts=model.ts)
 
     else:  # scan | ota | rf_rx | rf_rx_end | audit | audit_detalle

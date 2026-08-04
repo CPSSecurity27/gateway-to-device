@@ -25,6 +25,9 @@ class RepoEspia(StubRepo):
     async def confirm_command(self, cid, *, res=None, det=None):
         self.llamadas.append(("confirm", cid, res))
 
+    async def confirm_config(self, mac, cfg_v, *, res="ok", det=None):
+        self.llamadas.append(("confirm_cfg", mac, cfg_v, res, det))
+
     async def insert_evento(self, mac, tipo, payload, *, eid=None, ts=None):
         self.llamadas.append(("evento", mac, tipo, payload))
         return await super().insert_evento(mac, tipo, payload, eid=eid, ts=ts)
@@ -70,3 +73,24 @@ async def test_cfg_full_va_al_historico_sin_passwords():
     assert len(eventos) == 1
     assert eventos[0][3]["redes"][0]["psw"] == "***"      # redactado
     assert eventos[0][3]["redes"][0]["ssid"] == "Casa"    # el resto intacto
+
+
+async def test_ack_de_cfg_va_por_confirm_config():
+    """El ack de una cfg NO trae cid: sin esto cae en el dead letter."""
+    repo = RepoEspia()
+    await uplink.handle(f"av/{DEVICE_ID}/up",
+                        _msg(t="ack", cfg_v=7, res="ok"), repo)
+    confirmaciones = [c for c in repo.llamadas if c[0] == "confirm_cfg"]
+    assert confirmaciones == [("confirm_cfg", MAC, 7, "ok", None)]
+    # Y NO se lo trata como ack de comando: no hay cid que correlacionar.
+    assert [c for c in repo.llamadas if c[0] == "confirm"] == []
+
+
+async def test_ack_de_cmd_sigue_yendo_por_confirm_command():
+    repo = RepoEspia()
+    await uplink.handle(f"av/{DEVICE_ID}/up",
+                        _msg(t="ack", cid="c-42", res="ok"), repo)
+    assert [c for c in repo.llamadas if c[0] == "confirm_cfg"] == []
+    assert [c for c in repo.llamadas if c[0] == "confirm"] == [
+        ("confirm", "c-42", "ok")
+    ]

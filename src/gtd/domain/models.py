@@ -120,6 +120,38 @@ class UpOta(_Envelope):
     fw: str | None = None
 
 
+# ── RF2/RF6: alta y auditoría de controles (task_mqtt.c) ────────────
+class UpRfRx(_Envelope):
+    """RF2: un código de 64 bits captado en modo monitor. Alimenta la pantalla
+    de alta de controles RF. known=True trae el dni/pos que el panel ya tiene."""
+    t: str = UpType.RF_RX.value
+    code: int
+    known: bool = False
+    dni: int | None = None
+    pos: int | None = None
+
+
+class UpRfRxEnd(_Envelope):
+    t: str = UpType.RF_RX_END.value
+    motivo: str | None = None    # "cmd" | "timeout" | "ventana"
+
+
+class UpAudit(_Envelope):
+    """RF6-2: lote de {dni,n,hash} para comparar la base RF del panel contra
+    la del servidor. next=0xFFFF (65535) = último lote."""
+    t: str = UpType.AUDIT.value
+    start: int
+    next: int
+    lote: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class UpAuditDetalle(_Envelope):
+    """RF6-3: códigos EXACTOS de los DNIs consultados. OJO: los códigos RF son
+    secretos (en la web viven cifrados AES-256-GCM) — no loguear entero."""
+    t: str = UpType.AUDIT_DETALLE.value
+    clientes: list[dict[str, Any]] = Field(default_factory=list)
+
+
 def is_schema_ok(doc: dict[str, Any]) -> bool:
     """Chequeo barato antes de validar: v presente y compatible."""
     return doc.get("v") == SCHEMA_V

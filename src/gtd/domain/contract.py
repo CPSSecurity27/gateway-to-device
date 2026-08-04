@@ -68,12 +68,16 @@ class Channel(str, Enum):
 
 
 class UpType(str, Enum):
-    """Discriminador "t" del canal up — mqtt_payload.c."""
+    """Discriminador "t" del canal up — mqtt_payload.c y task_mqtt.c."""
     ALARMA = "alarma"
     ACK = "ack"
     SCAN = "scan"
     OTA = "ota"
     CFG_FULL = "cfg_full"   # el panel espeja su config completa al conectar
+    RF_RX = "rf_rx"                  # RF2: código captado en modo monitor (alta de controles)
+    RF_RX_END = "rf_rx_end"          # RF2: fin del modo monitor (cmd / timeout / ventana)
+    AUDIT = "audit"                  # RF6-2: checksums FNV-1a por cliente, en lotes
+    AUDIT_DETALLE = "audit_detalle"  # RF6-3: códigos exactos de DNIs consultados
 
 
 class AlarmaMode(str, Enum):

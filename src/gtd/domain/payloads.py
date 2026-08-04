@@ -17,8 +17,12 @@ from .models import (
     TeleMsg,
     UpAck,
     UpAlarma,
+    UpAudit,
+    UpAuditDetalle,
     UpCfgFull,
     UpOta,
+    UpRfRx,
+    UpRfRxEnd,
     UpScan,
     is_schema_ok,
 )
@@ -37,6 +41,10 @@ _UP_MODELS = {
     UpType.SCAN.value: UpScan,
     UpType.OTA.value: UpOta,
     UpType.CFG_FULL.value: UpCfgFull,
+    UpType.RF_RX.value: UpRfRx,
+    UpType.RF_RX_END.value: UpRfRxEnd,
+    UpType.AUDIT.value: UpAudit,
+    UpType.AUDIT_DETALLE.value: UpAuditDetalle,
 }
 
 

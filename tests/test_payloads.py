@@ -62,3 +62,37 @@ def test_status_online():
 def test_json_basura():
     with pytest.raises(payloads.PayloadError):
         payloads.parse(Channel.STATUS, "no soy json {")
+
+
+# ── RF2/RF6: los cuatro tipos que antes se descartaban (doc 06 §3.f) ─
+# Formas EXACTAS del firmware: task_mqtt.c l.992-1006 (rf_rx), l.324-327
+# (rf_rx_end), l.363-374 (audit), l.390-411 (audit_detalle).
+
+def _up(**campos) -> str:
+    import json
+    return json.dumps({"v": 1, "ts": 1700000000, "tsq": 2, **campos})
+
+
+def test_rf_rx_conocido_y_desconocido():
+    m, _ = payloads.parse(Channel.UP, _up(t="rf_rx", code=12345678901234, known=True,
+                                          dni=30111222, pos=1))
+    assert m.code == 12345678901234 and m.known and m.dni == 30111222 and m.pos == 1
+    m, _ = payloads.parse(Channel.UP, _up(t="rf_rx", code=99, known=False))
+    assert not m.known and m.dni is None
+
+
+def test_rf_rx_end():
+    m, _ = payloads.parse(Channel.UP, _up(t="rf_rx_end", motivo="timeout"))
+    assert m.motivo == "timeout"
+
+
+def test_audit_lote():
+    m, _ = payloads.parse(Channel.UP, _up(t="audit", start=0, next=0xFFFF,
+                                          lote=[{"dni": 30111222, "n": 2, "hash": 123456}]))
+    assert m.next == 0xFFFF and m.lote[0]["dni"] == 30111222
+
+
+def test_audit_detalle():
+    m, _ = payloads.parse(Channel.UP, _up(t="audit_detalle",
+        clientes=[{"dni": 30111222, "codigos": [{"pos": 0, "code": 111}]}]))
+    assert m.clientes[0]["codigos"][0]["code"] == 111

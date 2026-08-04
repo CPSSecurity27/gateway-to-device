@@ -90,6 +90,11 @@ _UP_MINIMO = {
     UpType.SCAN: {"redes": [{"ssid": "X", "rssi": -60}]},
     UpType.OTA: {"estado": 2, "fw": "6.0.0"},
     UpType.CFG_FULL: {"cfg_v": 1},
+    # RF2/RF6 (task_mqtt.c): formas mínimas reales del firmware.
+    UpType.RF_RX: {"code": 12345678901234, "known": False},
+    UpType.RF_RX_END: {"motivo": "timeout"},
+    UpType.AUDIT: {"start": 0, "next": 65535, "lote": []},
+    UpType.AUDIT_DETALLE: {"clientes": []},
 }
 
 

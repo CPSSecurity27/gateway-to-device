@@ -9,9 +9,11 @@ Un payload malformado se CUENTA y se DESCARTA: nunca tira abajo el pipeline.
 
 from __future__ import annotations
 
+import json
 import logging
 
-from ..db.repo import Repo
+from ..db.repo import Repo, RepoUnavailable
+from ..db.spool import Spool
 from ..domain import payloads
 from ..domain.contract import AlarmaOrigin, Channel, UpType
 from ..mqtt import topics
@@ -67,7 +69,8 @@ def _log_status(mac: str, model, *, silencio: float, gap: float) -> None:
 
 
 async def handle(raw_topic: str, raw_payload: bytes, repo: Repo,
-                 *, gap_reconexion: float = 60.0) -> None:
+                 *, gap_reconexion: float = 60.0,
+                 spool: Spool | None = None) -> None:
     parsed = topics.parse(raw_topic)
     if parsed is None:
         log.debug("tópico ignorado: %s", raw_topic)
@@ -107,7 +110,21 @@ async def handle(raw_topic: str, raw_payload: bytes, repo: Repo,
         )
 
     elif channel is Channel.UP:
-        await _handle_up(mac, doc, model, repo)
+        try:
+            await _handle_up(mac, doc, model, repo)
+        except RepoUnavailable:
+            if spool is None:
+                raise
+            # El PUBACK ya salió: este doc no existe en ningún otro lado.
+            spool.append({"mac": mac, "doc": doc})
+            log.error("base caída: up de mac=%s al spool", mac)
+
+
+async def replay(mac: str, doc: dict, repo: Repo) -> None:
+    """Reinserta un `up` guardado en el spool. Idempotente: el dedup por eid
+    hace que reinsertar dos veces devuelva False y nada más."""
+    model, doc = payloads.parse(Channel.UP, json.dumps(doc))
+    await _handle_up(mac, doc, model, repo)
 
 
 async def _handle_up(mac, doc, model, repo: Repo) -> None:

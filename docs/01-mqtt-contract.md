@@ -107,7 +107,14 @@ completo** en `panel_state.energia`/JSONB y extrae los indexados (`modo`,
 
 ### up (stream, discriminado por `"t"`)
 
-`"t"` ∈ `alarma | ack | scan | ota`.
+`"t"` ∈ `alarma | ack | scan | ota | cfg_full`.
+
+> ⚠️ **Brecha conocida (2026-08-03).** El firmware emite además `rf_rx`,
+> `rf_rx_end`, `audit` y `audit_detalle` (`task_mqtt.c:325,364,391,994`) —
+> monitor RF y auditoría de la base RF. El GtD **hoy los descarta** con
+> `PayloadError: up con t desconocido`. Faltan en `UpType`/`_UP_MODELS`
+> (`src/gtd/domain/`). Alimentan la pantalla de alta de controles RF del panel
+> web: si esa pantalla se prioriza, esto se implementa primero.
 
 **alarma** — reporte canónico de `task_alarma` (resultado real de una activación):
 ```json
@@ -124,9 +131,16 @@ completo** en `panel_state.energia`/JSONB y extrae los indexados (`modo`,
 **ack** — resultado de un cmd (`cid`) o de una cfg (`cfg_v`):
 ```json
 {"v":1,"t":"ack","cid":"cmd-xyz","res":"ok","det":"encolado","ts":...,"tsq":...}
-{"v":1,"t":"ack","cfg_v":7,"res":"error","det":"cfg_v vieja","ts":...,"tsq":...}
+{"v":1,"t":"ack","cfg_v":7,"res":"ok","ts":...,"tsq":...}
 ```
 `res` ∈ `ok | error`. Cierra el ciclo del downlink (marca `commands.confirmed`).
+
+> **El ack de cfg SOLO existe cuando la cfg se aplicó, y siempre con `res:"ok"`.**
+> Una cfg con `cfg_v` vieja/igual se ignora en **silencio total** — ni ack de
+> error (`task_mqtt.c:469`, solo incrementa `mqtt_cfg_rejected`). Una cfg
+> malformada, tampoco. El único mecanismo de detección del lado servidor es el
+> timeout: publiqué `cfg_v=N` y no llegó su ack. Un ejemplo anterior de este doc
+> mostraba un `res:"error"`/`det:"cfg_v vieja"` que **no existe en el firmware**.
 
 **scan** / **ota**:
 ```json
@@ -165,7 +179,17 @@ backend de app); no lo interpreta.
   vieja). Sin `cfg_v` ⇒ malformado.
 - **Lleva secretos** (passwords WiFi en `redes`) → cifrar en reposo, no loguear.
 - Campos: ver `mqtt_cfg_msg_t` en `mqtt_parse.h` (redes, modulos, tiempos, hora/tz,
-  mante, autooff[8], red_av/roam, central/alias/ubicacion/grupo).
+  mante, alarma.autooff, **`red_avanzada`**/roam, central/alias/ubicacion/grupo).
+  Tabla completa con tipos, unidades, rangos y defaults de fábrica en
+  [05](05-preguntas-equipo-web.md) §2.
+- **`red_av` no es una clave JSON**: es el nombre del campo del struct en C
+  (`has_red_av`). La clave es **`red_avanzada` en los dos sentidos** —
+  `mqtt_parse.c:154` (baja) y `task_mqtt.c:267` (`cfg_full`, sube).
+- **El merge es por sección, no por campo.** Una cfg parcial es válida (cada
+  sección tiene su `has_*`), pero si mandás `modulos` o `central`, mandalos
+  **completos**: los subcampos ausentes toman su default, no el valor actual —
+  `{"modulos":{"rf":true}}` apaga ds3231/eeprom/supervisor. `redes` reemplaza el
+  set entero. Ver [05](05-preguntas-equipo-web.md) §4.
 
 ## Idempotencia (resumen)
 

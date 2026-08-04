@@ -26,8 +26,14 @@ class Spool:
 
     def append(self, entry: dict[str, Any]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        with self._path.open("a+b") as f:
+            # Si el último write quedó cortado (crash a mitad de línea), no
+            # pegarse a esa línea rota: arruinaría también ESTE evento.
+            if f.tell() > 0:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    f.write(b"\n")
+            f.write(json.dumps(entry, ensure_ascii=False).encode() + b"\n")
             f.flush()
             os.fsync(f.fileno())
 

@@ -33,6 +33,32 @@ die()  { echo -e "\n\033[31m✗ $*\033[0m" >&2; exit 1; }
 
 RAW_MAC="$1"; shift
 
+# ── Modo y flags ────────────────────────────────────────────────────
+# `revoke` da de baja la credencial. Los flags existen para el provisioner
+# (`python -m gtd.provisioner`): con una tanda de equipos, recargar y verificar
+# UNA vez al final en vez de por equipo. Ver la spec del provisioner en el repo
+# web: docs/superpowers/specs/2026-08-04-provisioner-broker-design.md
+MODO_OP="provision"
+DO_RELOAD=1
+DO_PROBE=1
+
+if [ "$RAW_MAC" = "revoke" ]; then
+  MODO_OP="revoke"
+  RAW_MAC="${1:-}"; shift || true
+  [ -n "$RAW_MAC" ] || die "Uso: sudo -E bash $0 revoke <MAC>"
+fi
+
+TOPIC_ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-reload) DO_RELOAD=0 ;;
+    --no-probe)  DO_PROBE=0 ;;
+    *)           TOPIC_ARGS+=("$1") ;;
+  esac
+  shift
+done
+set -- "${TOPIC_ARGS[@]+"${TOPIC_ARGS[@]}"}"
+
 # Normalización: 12 dígitos hex en mayúsculas, sin separadores.
 HEX_MAC="$(echo "$RAW_MAC" | tr -d ':-' | tr '[:lower:]' '[:upper:]')"
 [[ "$HEX_MAC" =~ ^[0-9A-F]{12}$ ]] || die "MAC inválida: '$RAW_MAC' (esperaba 6 bytes hex)."
@@ -48,6 +74,34 @@ if [ $# -gt 0 ]; then
 else
   MAC_COLON="$(echo "$HEX_MAC" | sed 's/../&:/g; s/:$//')"
   TOPIC_IDS=("$HEX_MAC" "$MAC_COLON" "$USERNAME")
+fi
+
+# ── revoke: se va la credencial y listo ─────────────────────────────
+# La ACL no se toca: la regla `pattern av/%u/…` es de flota y no nombra equipos.
+# Sin usuario en gtd.passwd el panel no puede autenticar, y una regla que se
+# resuelve contra %u deja de aplicarle sola.
+if [ "$MODO_OP" = "revoke" ]; then
+  log "Baja de credencial"
+  echo "  MAC     : $HEX_MAC"
+  echo "  usuario : $USERNAME"
+  [ -f "$PASSWD_FILE" ] || die "No existe $PASSWD_FILE."
+
+  if mosquitto_passwd -D "$PASSWD_FILE" "$USERNAME" 2>/dev/null; then
+    ok "usuario $USERNAME eliminado"
+  else
+    warn "el usuario $USERNAME no estaba en el archivo (nada que hacer)"
+  fi
+
+  if [ "$DO_RELOAD" -eq 1 ]; then
+    log "Recargando mosquitto"
+    systemctl reload mosquitto 2>/dev/null || systemctl restart mosquitto
+    sleep 2
+    systemctl is-active --quiet mosquitto || die "mosquitto no quedó activo."
+    ok "activo"
+  else
+    ok "reload omitido (--no-reload): recordá recargar al final del lote"
+  fi
+  exit 0
 fi
 
 # La password: normalmente la calcula el contrato (HMAC). Pero un build en MODO
@@ -126,28 +180,42 @@ grep -q "pattern write av/%u/status" "$ACL_FILE" \
   && ok "cubierto por la regla de flota (nada que agregar)" \
   || die "la ACL no tiene las reglas pattern. Correr antes deploy/apply-acl.sh."
 
-log "Recargando mosquitto"
-systemctl reload mosquitto 2>/dev/null || systemctl restart mosquitto
-sleep 2
-systemctl is-active --quiet mosquitto || die "mosquitto no quedó activo."
-ok "activo"
+if [ "$DO_RELOAD" -eq 1 ]; then
+  log "Recargando mosquitto"
+  systemctl reload mosquitto 2>/dev/null || systemctl restart mosquitto
+  sleep 2
+  systemctl is-active --quiet mosquitto || die "mosquitto no quedó activo."
+  ok "activo"
+else
+  ok "reload omitido (--no-reload): recordá recargar al final del lote"
+fi
 
 # ── Verificación: la credencial entra de verdad ─────────────────────
-log "Probando la credencial contra 8883"
-PROBE_ID="${TOPIC_IDS[0]}"
-if timeout 10 mosquitto_pub -h cpssecurity.com.ar -p 8883 \
-     -u "$USERNAME" -P "$PASSWORD" \
-     -t "av/${PROBE_ID}/status" \
-     -m '{"v":1,"estado":"online","modo":"PROVISION_TEST","ts":0}' 2>/dev/null; then
-  ok "el panel puede autenticar y publicar su status"
-  sleep 2
-  if journalctl -u gateway-to-device --no-pager -n 10 -o cat | grep -q "$PROBE_ID"; then
-    ok "y el GtD lo recibió — camino completo verificado"
+# OJO: esto publica un `status` REAL en el broker. Con un equipo suelto es una
+# verificación de punta a punta; con una TANDA, el GtD recibiría un status por
+# equipo y marcaría a todos como conectados, escribiéndoles `first_connection_at`
+# con los paneles todavía en la caja. El hito de primera conexión es un hecho
+# observado: ensuciarlo con una prueba de laboratorio lo vuelve inútil.
+# Por eso el provisioner pasa --no-probe y verifica una sola vez, al final.
+if [ "$DO_PROBE" -eq 1 ]; then
+  log "Probando la credencial contra 8883"
+  PROBE_ID="${TOPIC_IDS[0]}"
+  if timeout 10 mosquitto_pub -h cpssecurity.com.ar -p 8883 \
+       -u "$USERNAME" -P "$PASSWORD" \
+       -t "av/${PROBE_ID}/status" \
+       -m '{"v":1,"estado":"online","modo":"PROVISION_TEST","ts":0}' 2>/dev/null; then
+    ok "el panel puede autenticar y publicar su status"
+    sleep 2
+    if journalctl -u gateway-to-device --no-pager -n 10 -o cat | grep -q "$PROBE_ID"; then
+      ok "y el GtD lo recibió — camino completo verificado"
+    else
+      warn "el GtD no lo vio (raro: el id '$PROBE_ID' está en la ACL)"
+    fi
   else
-    warn "el GtD no lo vio (raro: el id '$PROBE_ID' está en la ACL)"
+    die "la credencial no entra. Revisar: journalctl -u mosquitto -n 30"
   fi
 else
-  die "la credencial no entra. Revisar: journalctl -u mosquitto -n 30"
+  ok "verificación omitida (--no-probe)"
 fi
 
 log "LISTO — encender la placa y mirar"

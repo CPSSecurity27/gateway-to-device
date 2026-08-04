@@ -1,13 +1,14 @@
 -- ============================================================================
--- GtD — esquema base (CONTRATO para el equipo web).
+-- DEPRECADO (2026-08-04). Este esquema NUNCA se aplicó y ya no es el contrato.
 --
--- Postgres todavía no existe en el servidor: este archivo DEFINE las tablas y
--- los canales NOTIFY que el GtD espera. El equipo web lo aplica y ajusta al
--- integrar. El GtD (StubRepo) funciona sin esto; PgRepo lo requiere.
+-- El contrato real son las FUNCIONES del esquema `gtd` en la base del sistema
+-- web (repo CPSSecurity27/system-web, docs/contrato-gtd-postgres.md): el GtD
+-- no toca tablas — llama funciones con el rol cps_alarms, y el motor le niega
+-- el DML directo. PgRepo/PgListener ya están implementados contra ese
+-- contrato (ver docs/07-decisiones-integracion.md).
 --
--- Principio: Postgres es la única fuente de verdad y el bus entre el GtD y el
--- backend de app. El GtD escribe/lee acá; el backend de app también. Nunca se
--- hablan directo.
+-- Se conserva como referencia histórica de qué esperaba el GtD antes de la
+-- integración. NO aplicarlo a ninguna base.
 -- ============================================================================
 
 -- ── Estado presente de cada panel (una fila por equipo) ─────────────────────

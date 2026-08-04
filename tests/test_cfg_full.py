@@ -70,10 +70,15 @@ def test_cfg_full_es_el_unico_up_que_no_es_evento():
     assert UpType.CFG_FULL.value in payloads._UP_MODELS
 
 
-async def test_ruteo_va_al_espejo_y_no_a_eventos():
+async def test_ruteo_va_al_espejo_y_al_historico_redactado():
+    """v2 (P2-7): el espejo sigue siendo EL estado, pero además queda un rastro
+    en eventos para ver CÓMO cambió la config — con las psw ya tapadas, porque
+    el claro solo vive en el espejo."""
     repo = StubRepo()
     await uplink.handle(f"av/{MAC}/up", _raw(cfg_v=9), repo)
-    assert repo.eventos == []   # no es un evento
+    assert len(repo.eventos) == 1
+    assert repo.eventos[0]["tipo"] == "cfg_full"
+    assert repo.eventos[0]["payload"]["redes"][0]["psw"] == "***"
 
 
 async def test_la_password_de_wifi_no_llega_al_log(caplog):

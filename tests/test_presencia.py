@@ -179,7 +179,7 @@ async def test_el_panel_que_vuelve_se_marca_online(caplog):
     await uplink.handle(f"av/{DEVICE_ID}/tele",
                         b'{"v":1,"energia":{"modo":"ACTIVE_240"},"ts":1}', repo)
     assert any("VOLVIÓ" in r.message for r in caplog.records)
-    assert repo.panel_state[MAC]["online"] is True
+    assert repo.panel_state[MAC]["estado"] == "online"
 
 
 async def test_payload_roto_cuenta_como_señal_de_vida():

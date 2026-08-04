@@ -71,7 +71,8 @@ async def _watchdog_presencia(repo: Repo, settings: Settings) -> None:
         await asyncio.sleep(WATCHDOG_S)
         for mac, callado in presencia.sin_senal(settings.presence_timeout_s):
             log.warning("[!] panel SIN SEÑAL mac=%s (%.0fs sin hablar)", mac, callado)
-            await repo.upsert_panel_state(mac, online=False)
+            # seen=False: el panel NO habló; last_seen no se toca (P1-3).
+            await repo.upsert_panel_state(mac, estado="offline", seen=False)
 
 
 async def _downlink_loop(client: aiomqtt.Client, listener, repo: Repo) -> None:

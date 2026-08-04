@@ -22,10 +22,13 @@ class Repo(Protocol):
 
     # ── uplink (panel → base) ──
     async def upsert_panel_state(
-        self, mac: str, *, online: bool | None = None,
+        self, mac: str, *, estado: str | None = None,       # 'online'|'durmiendo'|'offline'
         modo_energia: str | None = None, alarma_mode: str | None = None,
         cfg_v: int | None = None, rf_gen: int | None = None,
-        energia: dict[str, Any] | None = None, last_seen: int | None = None,
+        energia: dict[str, Any] | None = None, fw: str | None = None,
+        despierta: int | None = None,                        # unix s (estado durmiendo)
+        ts: int | None = None, tsq: int | None = None,       # reloj DECLARADO del panel
+        seen: bool = True,                                   # False = watchdog: el panel NO habló
     ) -> None: ...
 
     async def insert_evento(
@@ -48,6 +51,9 @@ class Repo(Protocol):
     async def fetch_pending_config(self, mac: str) -> dict[str, Any] | None: ...
     async def mark_command_sent(self, cid: str) -> None: ...
     async def mark_config_sent(self, mac: str, cfg_v: int) -> None: ...
+    async def mark_config_failed(self, mac: str, cfg_v: int, det: str) -> None:
+        """La cfg que NO se pudo entregar (ej: no entra en los 1024 del panel)."""
+        ...
 
 
 def _now() -> datetime:
@@ -103,6 +109,9 @@ class StubRepo:
 
     async def mark_config_sent(self, mac, cfg_v) -> None:
         pass
+
+    async def mark_config_failed(self, mac, cfg_v, det) -> None:
+        log.warning("cfg failed mac=%s cfg_v=%s: %s", mac, cfg_v, det)
 
 
 class PgRepo:

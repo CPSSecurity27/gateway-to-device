@@ -16,8 +16,9 @@ import pytest
 from gtd.db.repo import StubRepo
 from gtd.pipeline import presencia, uplink
 
-MAC = "AV-A842E38FCA6C"
-OTRA = "AV-240AC4000110"
+DEVICE_ID = "AV-A842E38FCA6C"   # lo que viaja en el tópico
+MAC = "A842E38FCA6C"            # la clave en base y presencia (pelada)
+OTRA = "240AC4000110"
 GAP = 60.0
 
 
@@ -143,10 +144,10 @@ def test_dormido_que_no_desperto_si_se_marca():
 async def test_el_uplink_loguea_la_reconexion(caplog):
     caplog.set_level(logging.INFO, logger="gtd.uplink")
     repo = StubRepo()
-    await uplink.handle(f"av/{MAC}/status", _status(modo="ACTIVE_240"), repo)
+    await uplink.handle(f"av/{DEVICE_ID}/status", _status(modo="ACTIVE_240"), repo)
     _envejecer(MAC, 120)
     caplog.clear()
-    await uplink.handle(f"av/{MAC}/status", _status(modo="ACTIVE_240"), repo)
+    await uplink.handle(f"av/{DEVICE_ID}/status", _status(modo="ACTIVE_240"), repo)
 
     msgs = [r.message for r in caplog.records if r.name == "gtd.uplink"]
     assert any("RECONECTÓ" in m for m in msgs)
@@ -157,11 +158,11 @@ async def test_telemetria_no_dispara_reconexiones(caplog):
     """La tele va por otro canal y no lleva `estado`: no puede tocar la presencia."""
     caplog.set_level(logging.INFO, logger="gtd.uplink")
     repo = StubRepo()
-    await uplink.handle(f"av/{MAC}/status", _status(), repo)
+    await uplink.handle(f"av/{DEVICE_ID}/status", _status(), repo)
     caplog.clear()
     for _ in range(5):
         _envejecer(MAC, 120)
-        await uplink.handle(f"av/{MAC}/tele",
+        await uplink.handle(f"av/{DEVICE_ID}/tele",
                             b'{"v":1,"energia":{"modo":"ACTIVE_240"},"ts":1}', repo)
 
     assert not [r for r in caplog.records if "RECONECT" in r.message]
@@ -170,12 +171,12 @@ async def test_telemetria_no_dispara_reconexiones(caplog):
 async def test_el_panel_que_vuelve_se_marca_online(caplog):
     caplog.set_level(logging.INFO, logger="gtd.uplink")
     repo = StubRepo()
-    await uplink.handle(f"av/{MAC}/status", _status(), repo)
+    await uplink.handle(f"av/{DEVICE_ID}/status", _status(), repo)
     _envejecer(MAC, 300)
     presencia.sin_senal(180)              # el watchdog lo da por caído
     caplog.clear()
 
-    await uplink.handle(f"av/{MAC}/tele",
+    await uplink.handle(f"av/{DEVICE_ID}/tele",
                         b'{"v":1,"energia":{"modo":"ACTIVE_240"},"ts":1}', repo)
     assert any("VOLVIÓ" in r.message for r in caplog.records)
     assert repo.panel_state[MAC]["online"] is True
@@ -184,5 +185,5 @@ async def test_el_panel_que_vuelve_se_marca_online(caplog):
 async def test_payload_roto_cuenta_como_señal_de_vida():
     """Un panel que manda basura está vivo: no debe darse por caído."""
     repo = StubRepo()
-    await uplink.handle(f"av/{MAC}/up", b"no soy json {", repo)
+    await uplink.handle(f"av/{DEVICE_ID}/up", b"no soy json {", repo)
     assert presencia.sin_senal(180) == []

@@ -11,7 +11,8 @@ import pytest
 from gtd.db.repo import StubRepo
 from gtd.pipeline import presencia, uplink
 
-MAC = "AA:BB:CC:DD:EE:FF"
+DEVICE_ID = "AV-240AC4000110"   # lo que viaja en el tópico
+MAC = "240AC4000110"            # lo que aparece en los logs (pelada)
 
 
 def _status(estado: str, **extra) -> bytes:
@@ -33,7 +34,7 @@ def _limpiar_estado():
 
 async def test_primer_status_online_se_loguea(caplog):
     caplog.set_level(logging.INFO, logger="gtd.uplink")
-    await uplink.handle(f"av/{MAC}/status", _status("online", modo="ACTIVE_240", fw="6.0.0"), StubRepo())
+    await uplink.handle(f"av/{DEVICE_ID}/status", _status("online", modo="ACTIVE_240", fw="6.0.0"), StubRepo())
 
     (rec,) = [r for r in caplog.records if r.name == "gtd.uplink"]
     assert "panel ONLINE" in rec.message
@@ -48,7 +49,7 @@ async def test_status_repetido_no_repite_el_log(caplog):
     caplog.set_level(logging.INFO, logger="gtd.uplink")
     repo = StubRepo()
     for _ in range(3):
-        await uplink.handle(f"av/{MAC}/status", _status("online", modo="ACTIVE_240"), repo)
+        await uplink.handle(f"av/{DEVICE_ID}/status", _status("online", modo="ACTIVE_240"), repo)
 
     assert len([r for r in caplog.records if r.name == "gtd.uplink"]) == 1
 
@@ -56,9 +57,9 @@ async def test_status_repetido_no_repite_el_log(caplog):
 async def test_offline_es_warning(caplog):
     caplog.set_level(logging.INFO, logger="gtd.uplink")
     repo = StubRepo()
-    await uplink.handle(f"av/{MAC}/status", _status("online"), repo)
+    await uplink.handle(f"av/{DEVICE_ID}/status", _status("online"), repo)
     caplog.clear()
-    await uplink.handle(f"av/{MAC}/status", _status("offline", causa="lwt"), repo)
+    await uplink.handle(f"av/{DEVICE_ID}/status", _status("offline", causa="lwt"), repo)
 
     (rec,) = [r for r in caplog.records if r.name == "gtd.uplink"]
     assert "panel OFFLINE" in rec.message
@@ -71,7 +72,7 @@ async def test_durmiendo_no_es_offline(caplog):
     """Un panel que duerme no está caído: INFO, no WARNING."""
     caplog.set_level(logging.INFO, logger="gtd.uplink")
     await uplink.handle(
-        f"av/{MAC}/status", _status("durmiendo", despierta=1700003600), StubRepo()
+        f"av/{DEVICE_ID}/status", _status("durmiendo", despierta=1700003600), StubRepo()
     )
 
     (rec,) = [r for r in caplog.records if r.name == "gtd.uplink"]
@@ -83,9 +84,9 @@ async def test_durmiendo_no_es_offline(caplog):
 async def test_paneles_distintos_no_se_pisan(caplog):
     caplog.set_level(logging.INFO, logger="gtd.uplink")
     repo = StubRepo()
-    otra = "11:22:33:44:55:66"
-    await uplink.handle(f"av/{MAC}/status", _status("online"), repo)
-    await uplink.handle(f"av/{otra}/status", _status("online"), repo)
+    otra = "A842E38FCA6C"
+    await uplink.handle(f"av/{DEVICE_ID}/status", _status("online"), repo)
+    await uplink.handle(f"av/AV-{otra}/status", _status("online"), repo)
 
     msgs = [r.message for r in caplog.records if r.name == "gtd.uplink"]
     assert len(msgs) == 2
@@ -96,6 +97,6 @@ async def test_tele_no_dispara_log_de_conexion(caplog):
     """Solo status habla de conexión; la telemetría no debe ensuciar."""
     caplog.set_level(logging.INFO, logger="gtd.uplink")
     raw = b'{"v":1,"cfg_v":3,"energia":{"modo":"red"},"ts":1700000000}'
-    await uplink.handle(f"av/{MAC}/tele", raw, StubRepo())
+    await uplink.handle(f"av/{DEVICE_ID}/tele", raw, StubRepo())
 
     assert [r for r in caplog.records if r.name == "gtd.uplink"] == []

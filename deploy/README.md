@@ -8,8 +8,12 @@ Estado real del servidor (Raspberry Pi, Raspbian 13, `ServidorCPS`):
   Usa otro espacio de tópicos (`cliente/servidor`, `servidor/<Marcador>`), así que
   **no colisiona** con `av/<MAC>/…`. El README principal dice que el GtD es el
   único componente que habla MQTT: hoy no es cierto, conviene corregirlo.
-- **Postgres no está instalado** → el GtD corre con `StubRepo`: valida, loguea, y
-  **no persiste nada**. El downlink queda dormido.
+- **Postgres 17.10 SÍ está instalado y corriendo** (verificado 2026-08-04),
+  escuchando solo en `127.0.0.1:5432`. Lo que falta es el `GTD_PG_DSN` en el
+  `.env`: mientras esté vacío el GtD corre con `StubRepo` —valida, loguea y **no
+  persiste nada**— y el downlink queda dormido. La base que hay es
+  `cps_security_monitoring`, con el esquema v2 congelado en la migración 4 de 16
+  y sin datos que valgan; al desplegar se rehace con el nombre `cpssecurityarg`.
 
 ## Qué hace el despliegue
 
@@ -105,3 +109,54 @@ Las centrales no se ven afectadas: nunca usan `av/`.
    `PgListener` contra `migrations/001_init.sql`.
 2. **Paneles en 8883.** Requiere el `SALT_MQTT` real en el build de producción y
    la ACL por panel (hoy comentada en [`gtd.acl`](gtd.acl)).
+
+## El provisioner — alta y baja de credenciales
+
+`cps-provisioner.service` es un **segundo proceso**, aparte del GtD:
+
+```bash
+sudo cp deploy/cps-provisioner.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now cps-provisioner
+journalctl -u cps-provisioner -f
+```
+
+**Por qué no es una tarea más del GtD.** `gateway-to-device.service` está
+endurecido a propósito (`NoNewPrivileges=yes`, `ProtectSystem=strict`,
+`/etc` de solo lectura) porque recibe payloads de cada panel por MQTT.
+Registrar en el broker necesita justo lo contrario: escribir
+`/etc/mosquitto/gtd.passwd` y recargar mosquitto. Meterlo adentro sería desarmar
+ese encierro en el proceso más expuesto del sistema.
+
+El provisioner, en cambio, **no habla MQTT**: su única entrada son filas de
+`gtd.provisioning_queue` en la base local. Corre como root, pero con una
+superficie de ataque mucho más chica.
+
+### Configuración
+
+Las dos claves nuevas van en el mismo `.env`:
+
+```
+GTD_SALT_MQTT=          # el secreto de derivación
+GTD_PANEL_PASSWORD=     # alternativa para builds de laboratorio
+```
+
+**El `SALT_MQTT` vive acá y en ningún otro lado.** Quien lo tiene puede calcular
+la credencial de cualquier panel de la flota, así que **nunca** va en el `.env`
+de la web. El script lo valida contra un vector de verificación conocido antes
+de registrar nada: con un salt equivocado aborta sin tocar el broker, en vez de
+cargar credenciales que fallan recién cuando el panel intenta conectar.
+
+Sin ninguna de las dos, el script pedirá el salt por consola y no habrá nadie
+para tipearlo: el provisioner avisa al arrancar.
+
+### Qué hace
+
+Drena la cola invocando `provision-panel.sh` con `--no-reload --no-probe`, y
+**recarga mosquitto una sola vez al final de la tanda**. Los dos flags importan
+con volumen: 200 equipos serían 200 reloads, y la prueba de verificación
+publicaría 200 `status` falsos que el GtD tomaría como conexiones reales,
+escribiéndoles `first_connection_at` con los paneles todavía en la caja.
+
+Barre cada 60 s además del `NOTIFY`: una notificación emitida mientras el
+proceso estaba caído no vuelve nunca.

@@ -1,0 +1,37 @@
+[Unit]
+Description=CPS Provisioner — alta y baja de credenciales de panel en el broker
+Documentation=https://github.com/CPSSecurity27/gateway-to-device
+# Necesita el broker (para recargarlo) y la base (de donde saca la cola).
+After=network-online.target mosquitto.service postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Corre como root: escribe /etc/mosquitto/gtd.passwd (root:mosquitto 0640) y
+# recarga el broker.
+#
+# A diferencia del GtD, esto NO habla MQTT: su única entrada son filas de una
+# base local (Postgres escucha solo en 127.0.0.1) y la MAC que recibe ya viene
+# validada por el CHECK de la base y revalidada por el script. Por eso el GtD
+# puede quedarse encerrado con NoNewPrivileges y esto no.
+User=root
+WorkingDirectory=/home/servidorcps/SistemaCPS/gateway-to-device
+ExecStart=/home/servidorcps/SistemaCPS/gateway-to-device/.venv/bin/python -m gtd.provisioner
+Environment=PYTHONUNBUFFERED=1
+
+# El trabajo pendiente sobrevive en la cola: si el proceso muere, al arrancar
+# barre y sigue donde estaba. Reintentar sin ahogar la Pi.
+Restart=always
+RestartSec=30
+
+# Endurecimiento hasta donde llega sin romper el trabajo: necesita
+# /etc/mosquitto y systemctl, y nada más.
+ProtectHome=read-only
+ReadWritePaths=/etc/mosquitto
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

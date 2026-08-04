@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # ya salió, no existen en ningún otro lado). Relativo al working dir.
     spool_path: str = "var/spool-up.jsonl"
 
+    # ── Provisioner (proceso aparte: python -m gtd.provisioner) ──────────
+    # El SALT vive ACÁ y en ningún otro lado: quien lo tiene puede calcular la
+    # credencial de cualquier panel de la flota. La web nunca lo ve — solo dice
+    # "registrá esta MAC" encolando en gtd.provisioning_queue.
+    salt_mqtt: str = ""
+    # Interín para builds de laboratorio: password fija, no usa el salt.
+    panel_password: str = ""
+    provisioner_script: str = "deploy/provision-panel.sh"
+
     # Observabilidad
     log_level: str = "INFO"
 

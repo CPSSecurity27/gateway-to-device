@@ -49,6 +49,16 @@ class TeleMsg(_Envelope):
     alarma: dict[str, Any] | None = None    # {mode,act,redisp,...}
     cfg_v: int | None = None
     rf_gen: int | None = None
+    # El resto del snapshot. Se recibía y se tiraba: la web solo veía los
+    # voltajes, y con eso no se puede responder por qué un equipo se cae —
+    # "se reconecta 40 veces por hora con rssi -85" es la respuesta, y estaba
+    # llegando desde siempre.
+    red: dict[str, Any] | None = None       # {ssid,ip,rssi,recon,ping_fail,wdt}
+    rtc: dict[str, Any] | None = None       # {q,sync_hace_s,ds3231,ntp_boot}
+    modulos: dict[str, Any] | None = None   # {ds3231,eeprom,supervisor}
+    rf: dict[str, Any] | None = None        # {rx,dec,rechaz,supr,desc,lim,...}
+    sueno: dict[str, Any] | None = None     # {despierta,motivo}
+    colas: dict[str, Any] | None = None     # {admin_drops,mqtt_out_drops}
 
     @property
     def alarma_mode(self) -> str | None:
@@ -57,6 +67,27 @@ class TeleMsg(_Envelope):
     @property
     def modo_energia(self) -> str | None:
         return (self.energia or {}).get("modo")
+
+    @property
+    def snapshot(self) -> dict[str, Any]:
+        """Todo lo que no tiene columna propia, para el JSONB `device_state.tele`.
+
+        Se arma acá y no en el repo para que el criterio de qué es "el resto"
+        viva junto a la definición del mensaje: si mañana el firmware suma una
+        sección, se agrega arriba y aparece sola en la ficha del equipo.
+        """
+        return {
+            k: v
+            for k, v in (
+                ("rtc", self.rtc),
+                ("modulos", self.modulos),
+                ("ota", self.ota),
+                ("rf", self.rf),
+                ("sueno", self.sueno),
+                ("colas", self.colas),
+            )
+            if v is not None
+        }
 
 
 # ── up (stream, discriminado por "t") ───────────────────────────────

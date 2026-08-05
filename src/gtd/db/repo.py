@@ -39,6 +39,8 @@ class Repo(Protocol):
         despierta: int | None = None,                        # unix s (estado durmiendo)
         ts: int | None = None, tsq: int | None = None,       # reloj DECLARADO del panel
         seen: bool = True,                                   # False = watchdog: el panel NO habló
+        red: dict[str, Any] | None = None,                   # {ssid,ip,rssi,recon,ping_fail}
+        tele: dict[str, Any] | None = None,                  # el resto del snapshot
     ) -> None: ...
 
     async def insert_evento(
@@ -164,7 +166,8 @@ class PgRepo:
         SELECT gtd.upsert_panel_state(
             p_mac => $1, p_estado => $2, p_modo_energia => $3, p_alarma_mode => $4,
             p_cfg_v => $5, p_rf_gen => $6, p_energia => $7, p_fw => $8,
-            p_despierta => $9, p_ts_device => $10, p_tsq => $11, p_seen => $12)
+            p_despierta => $9, p_ts_device => $10, p_tsq => $11, p_seen => $12,
+            p_red => $13, p_tele => $14)
     """
     _SQL_INSERT_EVENTO = """
         SELECT gtd.insert_evento(p_mac => $1, p_tipo => $2, p_payload => $3,
@@ -235,10 +238,11 @@ class PgRepo:
     async def upsert_panel_state(self, mac, *, estado=None, modo_energia=None,
                                  alarma_mode=None, cfg_v=None, rf_gen=None,
                                  energia=None, fw=None, despierta=None,
-                                 ts=None, tsq=None, seen=True) -> None:
+                                 ts=None, tsq=None, seen=True,
+                                 red=None, tele=None) -> None:
         res = await self._fetchval(self._SQL_UPSERT_STATE, mac, estado, modo_energia,
                                    alarma_mode, cfg_v, rf_gen, energia, fw,
-                                   despierta, ts, tsq, seen)
+                                   despierta, ts, tsq, seen, red, tele)
         if res != "ok":
             # Las funciones no tiran excepción para el GtD: devuelven códigos.
             log.warning("upsert_panel_state mac=%s → %s", mac, res)

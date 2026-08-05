@@ -94,3 +94,60 @@ async def test_ack_de_cmd_sigue_yendo_por_confirm_command():
     assert [c for c in repo.llamadas if c[0] == "confirm"] == [
         ("confirm", "c-42", "ok")
     ]
+
+
+# ── Telemetría completa ─────────────────────────────────────────────
+# El panel manda mucho más que voltajes: red, rtc, módulos, ota, contadores
+# RF, sueño y colas. Todo eso llegaba y se tiraba, y sin ello no se puede
+# responder por qué un equipo se cae — "se reconecta 40 veces con rssi -85"
+# es la respuesta, y estaba viajando desde siempre.
+
+TELE = dict(
+    energia={"modo": "ACTIVE_240", "vbat": 12.6, "vpanel": 13.9, "vfuente": 0.0},
+    red={"ssid": "CasaX", "ip": "192.168.1.7", "rssi": -61, "recon": 3,
+         "ping_fail": 0, "wdt": 0},
+    rtc={"q": 0, "sync_hace_s": 120, "ds3231": True, "ntp_boot": True},
+    modulos={"supervisor": False},
+    ota={"estado": 0, "ultimo": 0},
+    rf={"rx": 123, "dec": 50, "desc": 2, "lim": 0},
+    sueno={"despierta": 0, "motivo": 0},
+    colas={"admin_drops": 0, "mqtt_out_drops": 0},
+    cfg_v=13,
+)
+
+
+async def test_la_tele_pasa_el_bloque_de_red_aparte():
+    """`red` va suelto porque ssid, ip y rssi tienen columna propia: son
+    preguntas de FLOTA y eso no se responde leyendo un JSONB fila por fila."""
+    repo = RepoEspia()
+    await uplink.handle(f"av/{DEVICE_ID}/tele", _msg(**TELE), repo)
+
+    kw = [c for c in repo.llamadas if c[0] == "state"][-1][2]
+    assert kw["red"]["ssid"] == "CasaX"
+    assert kw["red"]["ip"] == "192.168.1.7"
+    assert kw["red"]["rssi"] == -61
+
+
+async def test_la_tele_pasa_el_resto_del_snapshot_completo():
+    repo = RepoEspia()
+    await uplink.handle(f"av/{DEVICE_ID}/tele", _msg(**TELE), repo)
+
+    tele = [c for c in repo.llamadas if c[0] == "state"][-1][2]["tele"]
+    assert set(tele) == {"rtc", "modulos", "ota", "rf", "sueno", "colas"}
+    assert tele["rf"]["desc"] == 2
+    # `red` NO se duplica adentro: tiene columnas propias.
+    assert "red" not in tele
+    # `energia` tampoco: vbat/vpanel/vfuente ya son columnas.
+    assert "energia" not in tele
+
+
+async def test_una_tele_sin_secciones_no_inventa_claves():
+    """Un firmware viejo que no manda `rf` no tiene que dejar un `rf: null` en
+    la ficha: la sección simplemente no está."""
+    repo = RepoEspia()
+    await uplink.handle(f"av/{DEVICE_ID}/tele",
+                        _msg(energia={"modo": "ACTIVE_240"}), repo)
+
+    kw = [c for c in repo.llamadas if c[0] == "state"][-1][2]
+    assert kw["tele"] == {}
+    assert kw["red"] is None

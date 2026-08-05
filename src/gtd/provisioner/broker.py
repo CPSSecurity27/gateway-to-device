@@ -33,6 +33,10 @@ def argumentos(p: Pendiente, *, con_reload: bool = False) -> list[str]:
     En lote nunca se recarga por equipo ni se publica la prueba: el reload va
     una sola vez al final, y la prueba ensuciaría el `first_connection_at` de
     toda la tanda con paneles que están en la caja.
+
+    `manufacture` registra igual que `provision` — para el broker son la misma
+    operación. Lo que las diferencia pasa DESPUÉS del script: la fabricación
+    además deriva las credenciales del portal (ver `servicio.drenar`).
     """
     if p.op == "revoke":
         args = ["revoke", p.mac]

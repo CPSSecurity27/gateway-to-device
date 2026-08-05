@@ -106,3 +106,39 @@ async def test_el_orden_de_la_cola_se_respeta():
     await drenar(cola, reg)
 
     assert [c[0] for c in cola.confirmaciones] == [10, 11, 12]
+
+
+# ── El aviso de la base ─────────────────────────────────────────────
+
+async def test_el_bucle_espera_el_aviso_y_no_duerme_a_ciegas():
+    """El alta de fábrica es SINCRÓNICA: la web espera 30 s.
+
+    Si el bucle durmiera el intervalo entero sin escuchar el NOTIFY, toda
+    fabricación se vencería y el equipo se borraría. Este test fija que el
+    bucle pregunta por el aviso en vez de dormir.
+    """
+    import asyncio
+
+    from gtd.provisioner.servicio import bucle
+
+    class ColaQueAvisa(ColaStub):
+        def __init__(self):
+            super().__init__([])
+            self.esperas: list[float] = []
+
+        async def esperar_trabajo(self, timeout: float) -> bool:
+            self.esperas.append(timeout)
+            if len(self.esperas) >= 3:
+                raise asyncio.CancelledError
+            return True
+
+    cola = ColaQueAvisa()
+    with __import__("pytest").raises(asyncio.CancelledError):
+        await bucle(cola, RegistradorFalso(), 20)
+
+    assert cola.esperas == [20, 20, 20]
+
+
+async def test_sin_base_esperar_trabajo_se_comporta_como_el_barrido():
+    cola = ColaStub([])
+    assert await cola.esperar_trabajo(0.01) is False

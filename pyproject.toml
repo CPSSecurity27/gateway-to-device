@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "aiomqtt>=2.0",
     "asyncpg>=0.29",
+    "cryptography>=42.0",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
 ]

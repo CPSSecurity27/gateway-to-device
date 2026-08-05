@@ -103,9 +103,13 @@ async def handle(raw_topic: str, raw_payload: bytes, repo: Repo,
         )
 
     elif channel is Channel.TELE:
+        # `red` va aparte del resto del snapshot: ssid, ip y rssi tienen columna
+        # propia porque son preguntas de FLOTA ("¿cuáles tienen mala señal?"),
+        # y eso no se puede responder leyendo un JSONB fila por fila.
         await repo.upsert_panel_state(
             mac, modo_energia=model.modo_energia, alarma_mode=model.alarma_mode,
             cfg_v=model.cfg_v, rf_gen=model.rf_gen, energia=model.energia,
+            red=model.red, tele=model.snapshot,
             ts=model.ts, tsq=model.tsq,
         )
 

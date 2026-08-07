@@ -1,0 +1,9 @@
+# Los scripts de deploy corren en la Raspberry: si les entra un CRLF, bash lee
+# el \r como parte del comando y falla con mensajes que no dicen nada útil
+# ("$'\r': command not found", "set: pipefail: invalid option name"). Pasó en
+# producción el 2026-08-06 con provision-panel.sh, y dejó al provisioner sin
+# poder ejecutar el script.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.service text eol=lf
+*.acl   text eol=lf

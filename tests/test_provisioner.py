@@ -142,3 +142,72 @@ async def test_el_bucle_espera_el_aviso_y_no_duerme_a_ciegas():
 async def test_sin_base_esperar_trabajo_se_comporta_como_el_barrido():
     cola = ColaStub([])
     assert await cola.esperar_trabajo(0.01) is False
+
+
+# ── El DSN del provisioner ─────────────────────────────────────────
+# Encontrado en producción el 2026-08-06: el provisioner tomaba `pg_dsn` —el
+# del GtD, que corre como `cps_alarms`— y moría con "permission denied for
+# function fetch_pending_provisioning". El rol `cps_provisioner` y sus GRANTs
+# existían desde el primer día; lo que faltaba era que el código los usara.
+
+
+def test_el_provisioner_usa_su_propio_dsn():
+    """Que no vuelva a conectarse con el usuario del GtD.
+
+    A `cps_alarms` el diseño le NIEGA la cola a propósito: quien puede confirmar
+    un alta puede registrar credenciales en el broker, y el GtD es el proceso
+    que recibe payloads de cada panel.
+    """
+    from gtd.settings import Settings
+
+    s = Settings(
+        pg_dsn="postgresql://cps_alarms:x@127.0.0.1/base",
+        provisioner_dsn="postgresql://cps_provisioner:y@127.0.0.1/base",
+    )
+    assert "cps_provisioner" in s.dsn_del_provisioner
+
+
+def test_sin_dsn_propio_cae_al_del_gtd():
+    """El comportamiento de antes, para no romper una instalación existente.
+
+    `provisioner_dsn=""` va EXPLÍCITO: sin eso, pydantic-settings lee el `.env`
+    del directorio de trabajo y en el servidor real ese archivo SÍ tiene la
+    variable — el test pasaba acá y fallaba allá, que es la peor clase de test.
+    """
+    from gtd.settings import Settings
+
+    s = Settings(
+        pg_dsn="postgresql://cps_alarms:x@127.0.0.1/base",
+        provisioner_dsn="",
+    )
+    assert s.dsn_del_provisioner == s.pg_dsn
+
+
+# ── El broker se REINICIA, no se recarga ───────────────────────────
+# Costó una noche de producción (2026-08-06): fabricar un equipo hacía
+# `systemctl reload mosquitto`, el SIGHUP dejaba el contexto TLS a medias, y
+# toda la flota quedaba reintentando sin poder completar el handshake. El log
+# del broker mostraba "New connection from …" cada 30 s y NUNCA un "New client
+# connected", sin un solo error. El reload no avisa que falló: por eso es peor
+# que el corte que evita.
+
+
+def test_el_registrador_reinicia_el_broker_no_lo_recarga():
+    """Si alguien vuelve a poner `reload` acá, la flota se cae en silencio."""
+    import inspect
+
+    from gtd.provisioner.broker import Registrador
+
+    codigo = inspect.getsource(Registrador.recargar)
+    assert '"restart"' in codigo, "tiene que ser restart"
+    assert '"reload"' not in codigo, "el reload deja el TLS a medias"
+
+
+def test_el_script_de_provisioning_tambien_reinicia():
+    """El camino manual (`provision-panel.sh`) comparte el problema."""
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[1] / "deploy" / "provision-panel.sh"
+    texto = script.read_text(encoding="utf-8")
+    assert "systemctl restart mosquitto" in texto
+    assert "systemctl reload mosquitto" not in texto

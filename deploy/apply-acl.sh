@@ -36,13 +36,15 @@ cp -a "$ACL_FILE" "$BACKUP"; ok "$BACKUP"
 rollback() {
   warn "REVIRTIENDO la ACL…"
   cp -a "$BACKUP" "$ACL_FILE"
-  systemctl reload mosquitto || systemctl restart mosquitto
+  systemctl restart mosquitto
   sleep 2
 }
 
 log "Instalando la ACL nueva"
 install -o root -g mosquitto -m 0640 "$APP_DIR/deploy/gtd.acl" "$ACL_FILE"
-systemctl reload mosquitto 2>/dev/null || systemctl restart mosquitto
+# restart y no reload: el SIGHUP deja el contexto TLS a medias y los paneles
+# dejan de completar el handshake (2026-08-06). Ver broker.py::recargar.
+systemctl restart mosquitto
 sleep 2
 systemctl is-active --quiet mosquitto || { rollback; die "mosquitto no quedó activo."; }
 ok "cargada"

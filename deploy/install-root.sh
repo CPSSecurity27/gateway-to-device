@@ -86,7 +86,9 @@ cat > "$HOOK" <<HOOKEOF
 set -e
 install -o mosquitto -g mosquitto -m 0644 "${CERT_SRC}/fullchain.pem" "${MOSQ_CERTS}/fullchain.pem"
 install -o mosquitto -g mosquitto -m 0600 "${CERT_SRC}/privkey.pem"   "${MOSQ_CERTS}/privkey.pem"
-systemctl reload mosquitto || systemctl restart mosquitto
+# restart y no reload: el SIGHUP deja el contexto TLS a medias y los paneles
+# no completan el handshake (visto el 2026-08-06). Ver broker.py::recargar.
+systemctl restart mosquitto
 HOOKEOF
 chmod 0755 "$HOOK"
 ok "hook de renovación instalado en $HOOK"
@@ -108,8 +110,8 @@ if [ -f "$PASSWD_FILE" ]; then
 else
   mosquitto_passwd -c -b "$PASSWD_FILE" gateway "$GW_PASS"
 fi
-chown root:mosquitto "$PASSWD_FILE"; chmod 0640 "$PASSWD_FILE"
-install -o root -g mosquitto -m 0640 "$APP_DIR/deploy/gtd.acl" "$ACL_FILE"
+chown mosquitto:mosquitto "$PASSWD_FILE"; chmod 0640 "$PASSWD_FILE"
+install -o mosquitto -g mosquitto -m 0640 "$APP_DIR/deploy/gtd.acl" "$ACL_FILE"
 ok "usuario y ACL cargados"
 
 # ── 3. Configuración de mosquitto ───────────────────────────────────

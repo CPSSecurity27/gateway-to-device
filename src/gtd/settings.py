@@ -30,6 +30,23 @@ class Settings(BaseSettings):
     # si algún día hay pooler, el listener necesita un DSN directo aparte.
     pg_dsn: str = ""
 
+    # El PROVISIONER se conecta con OTRO usuario, y no es un detalle de higiene.
+    #
+    # `pg_dsn` es el del GtD, que corre como `cps_alarms`: el proceso que recibe
+    # payloads de cada panel y por eso vive encerrado. A ese rol el diseño le
+    # NIEGA la cola de provisioning a propósito — quien puede confirmar un alta
+    # puede registrar credenciales en el broker.
+    #
+    # El rol `cps_provisioner` existía y tenía sus GRANTs desde el primer día,
+    # pero el código nunca lo usó: el provisioner tomaba `pg_dsn` y chocaba con
+    # "permission denied for function fetch_pending_provisioning" (visto en
+    # producción el 2026-08-06). Vacío cae a `pg_dsn`, que es lo que hacía antes.
+    provisioner_dsn: str = ""
+
+    @property
+    def dsn_del_provisioner(self) -> str:
+        return self.provisioner_dsn or self.pg_dsn
+
     # Spool del canal `up`: eventos que no pudieron entrar a la base (el PUBACK
     # ya salió, no existen en ningún otro lado). Relativo al working dir.
     spool_path: str = "var/spool-up.jsonl"
@@ -76,6 +93,60 @@ class Settings(BaseSettings):
     # desarrollo" es la clase de inferencia que un día no registra nada en
     # producción y nadie se entera.
     registrador_falso: bool = False
+
+    # ── Puente con la app VIEJA (proceso aparte: python -m gtd.legacy) ───
+    # TEMPORAL: se va con la app vieja, junto con la migración LegacyAppBridge.
+    #
+    # Habla el listener 1883 EN CLARO Y ANÓNIMO, no el 8883 del GtD. No es un
+    # descuido: es el único que la app vieja sabe hablar (`kBrokerHost` /
+    # `kBrokerPort` están compilados adentro del APK). Por eso son campos
+    # propios y no reusa mqtt_host/mqtt_port — son dos políticas opuestas y
+    # confundirlas dejaría al GtD hablando sin TLS o al puente sin conectar.
+    legacy_mqtt_host: str = "localhost"
+    legacy_mqtt_port: int = 1883
+    legacy_mqtt_client_id: str = "gtd-legacy-1"
+    legacy_topic: str = "cliente/servidor"
+
+    # Rol `cps_legacy`: EXECUTE sobre gtd.enqueue_legacy_alarm y NADA más — ni
+    # siquiera SELECT sobre `device`. Vacío ⇒ PuertaStub, que acepta y tira: el
+    # proceso avisa fuerte al arrancar.
+    #
+    # NO cae a pg_dsn a propósito (a diferencia del provisioner): ese es el rol
+    # del GtD, y darle la entrada anónima de internet al rol que escribe el
+    # estado vivo de la flota es exactamente lo que este diseño evita.
+    legacy_dsn: str = ""
+
+    # Freno anti-abuso. El 1883 es anónimo y la app vieja no autentica a nadie,
+    # así que cualquiera puede publicar a nombre de cualquier DNI. Ver freno.py.
+    # El cps999 (desactivar) NUNCA se frena.
+    legacy_freno_dni_s: float = 3.0
+    legacy_freno_global_por_min: int = 30
+
+    # ── La BAJADA: proyección a Firebase + push ──────────────────────────
+    # Service account de `cpssecurityapp` (el proyecto que lee la app vieja).
+    # Vacío = no se proyecta nada: el puente sirve solo para activar, y la app
+    # queda con las pantallas congeladas. El proceso avisa al arrancar.
+    legacy_sa_file: str = ""
+    legacy_rtdb_url: str = "https://cpssecurityapp-default-rtdb.firebaseio.com"
+
+    # Prefijo de ENSAYO. Vacío = producción, o sea los paths que los teléfonos
+    # de los vecinos están escuchando AHORA. Con algo (ej. "_ensayo") todo se
+    # escribe abajo de ese nodo y no lo ve nadie: es la única forma de probar la
+    # proyección sin mostrarle una activación falsa a un barrio entero.
+    legacy_rtdb_prefijo: str = ""
+
+    # El push es lo ÚNICO que hoy le avisa a un vecino que sonó la alarma.
+    # Apagable aparte de la proyección para poder ensayar sin notificar.
+    legacy_push: bool = True
+
+    # Reconciliación. LISTEN/NOTIFY no tiene memoria: un aviso emitido mientras
+    # el proceso estaba caído no vuelve nunca, y sin barrido un reinicio en el
+    # momento equivocado deja la app diciendo 'Conectada' con una emergencia
+    # abierta.
+    legacy_barrido_s: float = 30.0
+    # El catálogo cambia con altas y suspensiones, no con emergencias: mucho
+    # más lento a propósito.
+    legacy_clientes_s: float = 300.0
 
     # Observabilidad
     log_level: str = "INFO"

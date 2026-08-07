@@ -97,9 +97,32 @@ class Registrador:
         return "error", detalle or "el script falló sin decir por qué"
 
     async def recargar(self) -> tuple[str, str | None]:
-        """Un solo reload por tanda."""
+        """Un solo REINICIO por tanda. No un reload, y eso costó una noche.
+
+        El `systemctl reload` (SIGHUP) le pide a mosquitto que rearme su
+        contexto TLS en caliente, y lo deja a medias: el listener 8883 sigue
+        aceptando la conexión TCP pero **no completa el handshake**. Los paneles
+        quedan reintentando cada 30 s con `MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE`
+        (-0x7280) justo después de validar el certificado, y en el log del
+        broker se ve el síntoma exacto:
+
+            New connection from 148.222.217.253 on port 8883    ← y nada más;
+            New connection from 148.222.217.253 on port 8883      nunca un
+            New connection from 148.222.217.253 on port 8883      "New client"
+
+        Visto en producción el 2026-08-06: fabricar UN equipo dejó a toda la
+        flota afuera durante horas, sin un solo error en el log. El reload no
+        avisa que falló — por eso es peor que el corte.
+
+        El restart corta las conexiones vivas, sí. Es un costo aceptado y
+        decidido con el usuario: dura segundos, los paneles reconectan solos con
+        su backoff, y el GtD también. La alternativa era una flota muda hasta
+        que alguien se diera cuenta.
+
+        Sigue siendo UNO POR TANDA: fabricar diez equipos reinicia una vez.
+        """
         proc = await asyncio.create_subprocess_exec(
-            "systemctl", "reload", "mosquitto",
+            "systemctl", "restart", "mosquitto",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

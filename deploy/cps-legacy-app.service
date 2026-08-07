@@ -1,0 +1,50 @@
+[Unit]
+Description=CPS Puente app vieja — cliente/servidor (MQTT 1883) hacia la alarma nueva
+Documentation=https://github.com/CPSSecurity27/gateway-to-device
+# TEMPORAL: existe solo mientras haya clientes con la app vieja instalada.
+After=network-online.target mosquitto.service postgresql.service
+Wants=network-online.target
+
+# NO PUEDEN CORRER LOS DOS. broker-bridge.service consume el MISMO tópico
+# (cliente/servidor) y traduce a Firebase; este traduce a la alarma nueva. Con
+# los dos vivos, cada vez que un vecino aprieta el botón se dispara dos veces y
+# el barrio recibe todo duplicado.
+#
+# Conflicts hace que `systemctl start cps-legacy-app` PARE el bridge solo. Es
+# deliberado: el corte es una operación de un comando y el rollback también
+# (`systemctl start broker-bridge` para este y levanta aquel).
+Conflicts=broker-bridge.service
+
+[Service]
+Type=simple
+# Usuario sin privilegios: a diferencia del provisioner, esto no toca
+# /etc/mosquitto ni recarga nada. Habla MQTT en claro contra localhost y llama
+# UNA función de Postgres con un rol que no puede hacer nada más.
+User=servidorcps
+WorkingDirectory=/home/servidorcps/SistemaCPS/gateway-to-device
+ExecStart=/home/servidorcps/SistemaCPS/gateway-to-device/.venv/bin/python -m gtd.legacy
+Environment=PYTHONUNBUFFERED=1
+
+# Este proceso es lo ÚNICO que le queda a los vecinos que no actualizaron la
+# app: si se cae, no pueden activar la alarma. Reintento rápido y para siempre.
+Restart=always
+RestartSec=5
+
+# Su entrada es un tópico MQTT ANÓNIMO abierto a internet, así que es el proceso
+# más expuesto de los tres. Se encierra tanto como el GtD.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/servidorcps/SistemaCPS/gateway-to-device/var
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -94,7 +94,7 @@ if [ "$MODO_OP" = "revoke" ]; then
 
   if [ "$DO_RELOAD" -eq 1 ]; then
     log "Recargando mosquitto"
-    systemctl reload mosquitto 2>/dev/null || systemctl restart mosquitto
+    systemctl restart mosquitto
     sleep 2
     systemctl is-active --quiet mosquitto || die "mosquitto no quedó activo."
     ok "activo"
@@ -168,7 +168,10 @@ echo "  tópicos   : ${TOPIC_IDS[*]}"
 log "Credencial"
 [ -f "$PASSWD_FILE" ] || die "No existe $PASSWD_FILE. Correr antes deploy/install-root.sh."
 mosquitto_passwd -b "$PASSWD_FILE" "$USERNAME" "$PASSWORD"
-chown root:mosquitto "$PASSWD_FILE"; chmod 0640 "$PASSWD_FILE"
+# Dueño mosquitto, no root: el broker ya avisa "owner is not mosquitto — future
+# versions will refuse to load this file". El día que actualice, un archivo de
+# root deja a TODA la flota sin poder autenticar.
+chown mosquitto:mosquitto "$PASSWD_FILE"; chmod 0640 "$PASSWD_FILE"
 ok "usuario $USERNAME cargado"
 
 log "ACL"
@@ -182,7 +185,7 @@ grep -q "pattern write av/%u/status" "$ACL_FILE" \
 
 if [ "$DO_RELOAD" -eq 1 ]; then
   log "Recargando mosquitto"
-  systemctl reload mosquitto 2>/dev/null || systemctl restart mosquitto
+  systemctl restart mosquitto
   sleep 2
   systemctl is-active --quiet mosquitto || die "mosquitto no quedó activo."
   ok "activo"

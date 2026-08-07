@@ -169,6 +169,26 @@ quedó viejo *a propósito* y no por un mensaje perdido.
 
 ---
 
+## F7 · El ejemplo de `tele.modulos.eeprom.kb` contradice al código (solo doc)
+
+**Qué pasa.** `mqtt_payload.c` arma el campo como `size_bytes / 1024u`: son
+**kilobytes**, y un AT24C32 (4096 B) reporta `"kb":4`. El ejemplo de
+`docs/mqtt_design.md` muestra `"eeprom":{"slot":0,"kb":32,...}`, que solo sería
+cierto si `kb` fueran kilobits.
+
+**Consecuencia.** Nos costó un bug en producción: la web tomó el ejemplo como
+contrato, leyó 4 como kilobits (512 B) y calculó un techo de **14 vecinos** en
+lugar de 126. Los paneles del Barrio Docente marcaban 11 y 7 controles como
+"no entran" con la EEPROM prácticamente vacía. Arreglado del lado web
+(`capacidadDeRegistros`), pero el próximo que lea el doc va a caer igual.
+
+**Propuesta.** Corregir el ejemplo a `"kb":4` y aclarar la unidad al lado del
+campo. Sin cambios de código.
+
+**Prioridad:** baja (documentación), pero el error que induce es caro.
+
+---
+
 *Contacto: los docs 07 (integración) y el contrato en el repo web
 (`docs/contrato-gtd-postgres.md`) tienen el contexto completo. F4-F6 salieron de
 implementar la pantalla de configuración por equipo; el diseño está en

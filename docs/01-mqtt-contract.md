@@ -103,18 +103,25 @@ El GtD **se suscribe** a `av/+/{status,tele,up}` y **publica** en `av/<id>/{cmd,
 ```
 Pueden aparecer más sub-objetos/campos. El GtD guarda el documento **crudo
 completo** en `panel_state.energia`/JSONB y extrae los indexados (`modo`,
-`alarma.mode`, `cfg_v`, `rf_gen`).
+`alarma.mode`, `cfg_v`, `rf.gen`).
+
+> **`rf.gen` va ANIDADA** (`"rf":{…,"gen":9}`), como en el `cfg_full`. El GtD la
+> leía como un campo `rf_gen` de primer nivel que el firmware no manda nunca, así
+> que `panel_state.rf_gen` se quedaba en 0 para todos los paneles y la detección
+> de "este equipo se quedó atrás con la base de controles" comparaba contra un
+> cero fijo. Corregido el 2026-08-05 (`TeleMsg.rf_gen` es un `@property`).
 
 ### up (stream, discriminado por `"t"`)
 
-`"t"` ∈ `alarma | ack | scan | ota | cfg_full`.
+`"t"` ∈ `alarma | ack | scan | ota | cfg_full | rf_rx | rf_rx_end | audit |
+audit_detalle`.
 
-> ⚠️ **Brecha conocida (2026-08-03).** El firmware emite además `rf_rx`,
-> `rf_rx_end`, `audit` y `audit_detalle` (`task_mqtt.c:325,364,391,994`) —
-> monitor RF y auditoría de la base RF. El GtD **hoy los descarta** con
-> `PayloadError: up con t desconocido`. Faltan en `UpType`/`_UP_MODELS`
-> (`src/gtd/domain/`). Alimentan la pantalla de alta de controles RF del panel
-> web: si esa pantalla se prioriza, esto se implementa primero.
+> **Cerrado (2026-08-05).** La brecha que decía este doc —`rf_rx`, `rf_rx_end`,
+> `audit` y `audit_detalle` descartados con `PayloadError`— **ya no existe**:
+> los cuatro están en `UpType`/`_UP_MODELS` y se guardan como eventos crudos.
+> Lo que todavía no hay es quién los INTERPRETE: `audit` (los hashes por DNI que
+> permiten detectar qué controles difieren de verdad contra la base del panel)
+> se guarda pero nadie lo compara. Ver §"Base RF" abajo.
 
 **alarma** — reporte canónico de `task_alarma` (resultado real de una activación):
 ```json
@@ -166,10 +173,34 @@ hora | i2c_scan | red | cal` (`mqtt_cmd_type_t`). El `cid` correlaciona el coman
 con su `ack`/`up`. El GtD arma el payload desde `commands.payload` (lo produce el
 backend de app); no lo interpreta.
 
-> **No implementado (planificado):** la sub-op `t:rf` `"op":"sync"` (sincronización
-> masiva de base RF por snapshot) — el firmware responde "no implementado". Es una
-> decisión abierta (mqtt_design §12). El resto de las sub-ops de `t:rf`
-> (batch/del/monitor/probe/audit/query) sí existen.
+> **`"op":"sync"` NO existe: se ELIMINÓ del firmware** (`portal_design §1.10`
+> cerró la §12 de mqtt_design). Este doc lo daba por "planificado" y no lo está:
+> la carga masiva por snapshot HTTPS se descartó a favor de deltas + auditoría.
+> Las sub-ops vivas son `batch | del | monitor | probe | audit | query`
+> (`mqtt_rf_op_t`), y `sync` cae en el `default` que ackea "op invalida".
+
+#### Base RF (`t:rf`) — lo que hay que saber antes de mandar una
+
+```json
+{"t":"rf","cid":"cmd-…","op":"batch","gen":41,
+ "clientes":[{"dni":30111222,"codigos":[123456,234567]}]}
+```
+
+- **La base se indexa por DNI**, no por control: un registro es una PERSONA con
+  hasta 4 códigos (`EE_CODES_PER_CLIENT`), y entran ~126 en un AT24C32.
+- **`op:batch` es alta PURA**: si el DNI ya existe —o si alguno de los códigos ya
+  es de otro— devuelve `EE_DUP` y **aborta el lote entero**. Actualizar a alguien
+  es `del` y después `batch`, en ese orden.
+- **5 clientes por comando** (`EE_SAVE_BATCH_MAX`), ~2,25 s cada uno: cada alta
+  barre la EEPROM.
+- **`gen` es obligatorio en la práctica.** `get_u32` devuelve 0 sin marcar error
+  para una clave ausente, así que un comando sin `gen` deja al panel reportando
+  generación 0 — que es lo que reporta un equipo recién vuelto de fábrica.
+- El `det` del ack trae `ee_status N`: `1` no existe · `2` **base llena** · `6`
+  duplicado · `8` la cola EEPROM no respondió.
+- **El panel recuerda 8 `cid`** (`MQTT_CID_RING_N`): publicar 24 lotes en ráfaga
+  desborda su dedup. La web los encola pero los libera de a uno (estado `queued`
+  en `commands`, ver [03](03-data-model.md)).
 
 ### cfg (estado deseado, retained)
 ```json

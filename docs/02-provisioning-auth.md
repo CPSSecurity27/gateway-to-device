@@ -39,6 +39,35 @@ password = hex_mayus(h[0..11])                         # primeros 12 bytes = 96 
 >
 > **24 chars, sin prefijo.** Coincide con el doc entregado al equipo de servidor.
 
+### El broker se REINICIA, nunca se recarga
+
+Después de escribir una credencial hay que hacerle saber al broker. Va
+`systemctl restart mosquitto`, **no `reload`**.
+
+El SIGHUP del reload le pide a mosquitto rearmar su contexto TLS en caliente y
+lo deja a medias: el listener 8883 sigue aceptando la conexión TCP pero no
+completa el handshake. Los paneles quedan reintentando cada 30 s con
+`MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE` (-0x7280) **justo después de validar el
+certificado del servidor**, y en el log del broker se ve así:
+
+```
+1786025551: New client connected as AV-A842E38FCA6C      <- antes del reload
+1786025604: Client AV-A842E38FCA6C disconnected
+1786026110: New connection from 148.222.217.253 on port 8883   <- y desde acá
+1786026147: New connection from 148.222.217.253 on port 8883      solo esto,
+1786026184: New connection from 148.222.217.253 on port 8883      cada 37 s
+```
+
+Nunca más un `New client connected`, y **ni un solo error**. Eso es lo que lo
+hace peligroso: el reload no avisa que falló.
+
+Pasó en producción el 2026-08-06 — fabricar UN equipo dejó a la flota entera
+afuera durante horas. El restart corta las conexiones vivas, pero dura segundos
+y los paneles reconectan solos con su backoff; el GtD también.
+
+Sigue siendo **uno por tanda**: fabricar diez equipos reinicia una vez
+(`servicio.py`, fase 2).
+
 ### Vector de verificación
 
 Con el `SALT_MQTT` **de producción**:

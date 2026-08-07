@@ -109,7 +109,7 @@ TELE = dict(
     rtc={"q": 0, "sync_hace_s": 120, "ds3231": True, "ntp_boot": True},
     modulos={"supervisor": False},
     ota={"estado": 0, "ultimo": 0},
-    rf={"rx": 123, "dec": 50, "desc": 2, "lim": 0},
+    rf={"rx": 123, "dec": 50, "desc": 2, "lim": 0, "gen": 9},
     sueno={"despierta": 0, "motivo": 0},
     colas={"admin_drops": 0, "mqtt_out_drops": 0},
     cfg_v=13,
@@ -139,6 +139,32 @@ async def test_la_tele_pasa_el_resto_del_snapshot_completo():
     assert "red" not in tele
     # `energia` tampoco: vbat/vpanel/vfuente ya son columnas.
     assert "energia" not in tele
+
+
+async def test_la_generacion_de_la_base_rf_sale_de_adentro_de_rf():
+    """`gen` viene ANIDADA en `rf`, no como campo de primer nivel.
+
+    Estaba leyéndose como `rf_gen` de primer nivel —que el firmware no manda
+    nunca—, así que `panel_state.rf_gen` se quedaba en 0 para todos los paneles
+    y la detección de "este equipo se quedó atrás con la base de controles"
+    nunca disparaba: comparaba contra un cero fijo.
+    """
+    repo = RepoEspia()
+    await uplink.handle(f"av/{DEVICE_ID}/tele", _msg(**TELE), repo)
+
+    kw = [c for c in repo.llamadas if c[0] == "state"][-1][2]
+    assert kw["rf_gen"] == 9
+
+
+async def test_una_tele_sin_rf_no_inventa_generacion():
+    """Un panel que todavía no habló de su base no reporta generación 0: eso
+    significa "volví de fábrica" y sería una desincronización inventada."""
+    repo = RepoEspia()
+    await uplink.handle(f"av/{DEVICE_ID}/tele",
+                        _msg(energia={"modo": "ACTIVE_240"}), repo)
+
+    kw = [c for c in repo.llamadas if c[0] == "state"][-1][2]
+    assert kw["rf_gen"] is None
 
 
 async def test_una_tele_sin_secciones_no_inventa_claves():

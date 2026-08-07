@@ -66,10 +66,13 @@ async def run() -> None:
         )
 
     cola: Cola
-    if settings.pg_dsn:
-        cola = ColaPg(settings.pg_dsn)
+    dsn = settings.dsn_del_provisioner
+    if dsn:
+        # OJO: es el DSN del PROVISIONER, no el del GtD. Van con usuarios
+        # distintos a propósito — ver `provisioner_dsn` en settings.py.
+        cola = ColaPg(dsn)
     else:
-        log.warning("Sin GTD_PG_DSN: no hay cola que drenar.")
+        log.warning("Sin GTD_PROVISIONER_DSN ni GTD_PG_DSN: no hay cola que drenar.")
         cola = ColaStub()
 
     registrador: object
@@ -89,7 +92,7 @@ async def run() -> None:
 
     await cola.start()
     try:
-        if settings.barrer_huerfanos and settings.pg_dsn:
+        if settings.barrer_huerfanos and dsn:
             try:
                 await barrer(cola, registrador)
             except Exception as e:                           # noqa: BLE001

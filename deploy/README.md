@@ -80,10 +80,20 @@ equipo, y el push en el diseño nuevo lo hace el backend de app leyendo Postgres
 que todavía no existe. En un sistema de alarmas eso no falla ruidosamente — falla
 el día que alguien necesita el aviso.
 
-**Checklist para poder apagarlo** (cuando estén los cuatro, se retira sin huecos):
+**Decisión (2026-08-07): el bridge no se reemplaza por nada, se PORTA.** Como
+hay clientes que no van a actualizar la app, lo que se construyó es un puente
+que traduce el mismo tópico al sistema nuevo — `cps-legacy-app.service`, ver
+[`../docs/09-app-vieja.md`](../docs/09-app-vieja.md). La app vieja sigue
+funcionando; lo que se apaga es el bridge, no el servicio a esos vecinos.
 
-- [ ] Postgres instalado y `PgRepo`/`PgListener` implementados.
-- [ ] Backend de app leyendo `LISTEN/NOTIFY` y mandando push.
+**Checklist para poder apagarlo** (cuando estén los cinco, se retira sin huecos):
+
+- [x] Postgres instalado y `PgRepo`/`PgListener` implementados.
+- [x] **Subida portada**: `cliente/servidor` → `gtd.enqueue_legacy_alarm` →
+      alarma nueva, con activador y GPS en el `event`. Probado end-to-end.
+- [ ] **Bajada portada**: proyección a Firebase (`InstruccionesActivacion`,
+      `Historial`, `DatosCentral/Estado`) + push FCM + catálogo `ClientesID`.
+      Sin esto la app queda muda y con las pantallas congeladas.
 - [ ] Flota `AlarmaV6` flasheada con el `SALT_MQTT` de producción y conectando
       por 8883 con credenciales.
 - [ ] Cada `CENTRALVECINAL##` reemplazada o migrada — inventario cerrado, no

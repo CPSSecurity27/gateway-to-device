@@ -48,7 +48,6 @@ class TeleMsg(_Envelope):
     ota: dict[str, Any] | None = None       # {fw,estado,ultimo}
     alarma: dict[str, Any] | None = None    # {mode,act,redisp,...}
     cfg_v: int | None = None
-    rf_gen: int | None = None
     # El resto del snapshot. Se recibía y se tiraba: la web solo veía los
     # voltajes, y con eso no se puede responder por qué un equipo se cae —
     # "se reconecta 40 veces por hora con rssi -85" es la respuesta, y estaba
@@ -67,6 +66,21 @@ class TeleMsg(_Envelope):
     @property
     def modo_energia(self) -> str | None:
         return (self.energia or {}).get("modo")
+
+    @property
+    def rf_gen(self) -> int | None:
+        """Generación de la base RF que el panel dice tener.
+
+        Viene ANIDADA en `rf`, igual que en el `cfg_full`
+        (`mqtt_payload.c`: `"rf":{...,"gen":%lu}`). Antes esto era un campo de
+        primer nivel `rf_gen`, que el firmware no manda nunca: se leía None
+        siempre y `panel_state.rf_gen` se quedaba en 0 para todos los paneles.
+
+        Lo que se rompía con eso: el servidor compara esta generación contra la
+        que asignó (`device.rf_gen`) para detectar que un panel se quedó atrás
+        con la base de controles. Con 0 fijo, esa comparación no detectaba nada.
+        """
+        return (self.rf or {}).get("gen")
 
     @property
     def snapshot(self) -> dict[str, Any]:

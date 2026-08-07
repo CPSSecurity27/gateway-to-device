@@ -42,6 +42,16 @@ cambio de `panel_state`) para empujar a la app.
 - `eventos` tiene `UNIQUE (mac, eid)` parcial → **dedup idempotente** de alarmas.
 - `commands.cid` es PK → correlación extremo a extremo. Ciclo:
   `pending → sent → confirmed | failed`.
+- **`queued` (2026-08-05): un estado ANTES de `pending`, que el GtD no ve.**
+  `fetch_pending_commands` y `fetch_pending_macs` filtran por `pending`, así que
+  una fila `queued` está en la tabla y no se publica. Lo usa la carga de base RF:
+  120 controles son 24 comandos, y publicarlos en ráfaga le tapa la cola al panel
+  por un minuto y desborda su ring de 8 `cid`. La tanda entra entera, sale el
+  primero, y `confirm_command` libera el siguiente con cada ack (`batch_id`/`seq`
+  los agrupan). **Para el GtD no cambia nada**: sigue publicando lo que le da
+  `fetch_pending_commands`.
+- `commands.meta` (JSONB) es de la web y **no se publica**: el GtD manda
+  `payload` y nada más.
 - `panel_config.payload` lleva **secretos (passwords WiFi)** → **cifrar en reposo**
   (pgcrypto o cifrado a nivel app). Nunca en logs.
 
